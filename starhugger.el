@@ -206,11 +206,13 @@ Enable `starhugger-global-mode' first."
 (progn
   (define-minor-mode starhugger-global-mode
     "Currently doesn't do very much.
-Beside enabling successive completions."
+Beside enabling successive completions.
+This doesn't trigger loading `starhugger.el'."
     :global t
     :keymap
-    (let* ((tab-item `(menu-item "" nil :filter
-                       starhugger--continue-complete-menu-item-filter)))
+    (let* ((tab-item
+            `(menu-item "" nil
+              :filter starhugger--continue-complete-menu-item-filter)))
       (list
        (cons (kbd "TAB") tab-item) ;
        (cons (kbd "<tab>") tab-item) ;

@@ -1,42 +1,44 @@
-An unfancy extension for [[https://huggingface.co/bigcode/starcoder]] integration.
+An unfancy Emacs extension for [[https://huggingface.co/bigcode/starcoder]] integration.
 
 * Installation
 
 Add one of those to your configuration. This package also requires [[https://github.com/emacs-compat/compat][compat]] and [[https://github.com/magnars/dash.el][dash]] as dependencies.
 
-** package-vc.el
-
 #+begin_src elisp
+
+;; package-vc.el (built-in from Emacs 29 and above)
 (unless (package-installed-p 'starhugger)
   (package-vc-install '(starhugger :url "https://gitlab.com/daanturo/starhugger.el")))
-#+end_src
 
-** straight.el
-
-#+begin_src elisp
+;; straight.el
 (straight-use-package '(starhugger :url "https://gitlab.com/daanturo/starhugger.el"))
-#+end_src
 
-** Doom
-
-#+begin_src elisp
+;; Doom
 (package! starhugger (:url "https://gitlab.com/daanturo/starhugger.el"))
-#+end_src
 
-** elpaca.el
-
-#+begin_src elisp
+;; elpaca.el
 (elpaca (starhugger :url "https://gitlab.com/daanturo/starhugger.el"))
+
 #+end_src
+
+Or any package manager of your choice.
 
 * Usage
 
-Call ~starhugger-complete~ or ~starhugger-complete-prompt-buffer-beginning-to-point~ directly or bind to your key(s) of choice.
+Call ~M-x~ ~starhugger-complete~ or ~starhugger-complete-prompt-buffer-beginning-to-point~ directly or bind them to your key(s) of choice.
 
-The performance may not be great, but there are asynchronous so Emacs won't be blocked.
+The performance may not be great, but they are asynchronous so Emacs won't be blocked.
 
 The first call usually doesn't return the completed code as expected, you can call the command successively, or enable ~(starhugger-global-mode)~ and press TAB to repeat.
 
 Remember to set ~starhugger-api-token~ (from [[https://huggingface.co/settings/tokens]]), otherwise you may easily get hit by the limit rate.
 
 Demo: [[https://www.reddit.com/r/emacs/comments/13dlycc/bigcodestarcoder_integration]].
+
+* TODO:
+
+- Support setting parameters at [[https://huggingface.co/docs/api-inference/detailed_parameters#text-generation-task]]
+
+- Support for auto-completing when typing: investigate Emacs's built-in ~completion-at-point-functions~ or another framework (may not be implemented)
+
+- VSCode-like previewing overlays: take after [[https://github.com/zerolfx/copilot.el]] (may not be implemented)
