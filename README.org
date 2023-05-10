@@ -25,7 +25,7 @@ Or any package manager of your choice.
 
 * Usage
 
-Call ~M-x~ ~starhugger-complete~ or ~starhugger-complete-prompt-buffer-beginning-to-point~ directly or bind them to your key(s) of choice.
+Call ~M-x~ ~starhugger-complete~ or ~starhugger-complete*~ directly or bind them to your key(s) of choice.
 
 The performance may not be great, but they are asynchronous so Emacs won't be blocked.
 
@@ -35,10 +35,8 @@ Remember to set ~starhugger-api-token~ (from [[https://huggingface.co/settings/t
 
 Demo: [[https://www.reddit.com/r/emacs/comments/13dlycc/bigcodestarcoder_integration]].
 
-* TODO:
+* Unimplemented
 
-- Support setting parameters at [[https://huggingface.co/docs/api-inference/detailed_parameters#text-generation-task]]
+- Support for auto-completing when typing: investigate Emacs's built-in ~completion-at-point-functions~'s asynchronous capabilities, another framework?
 
-- Support for auto-completing when typing: investigate Emacs's built-in ~completion-at-point-functions~ or another framework (may not be implemented)
-
-- VSCode-like previewing overlays: take after [[https://github.com/zerolfx/copilot.el]] (may not be implemented)
+- VSCode-like previewing overlays: take after [[https://github.com/zerolfx/copilot.el]]

@@ -1,9 +1,11 @@
 ;; -*- lexical-binding: t; -*-
 
+;; Version: 0.1.2
 ;; Package-Requires: ((emacs "28.2") (compat "29.1.4.0") (dash "2.18.0"))
 
 ;;; Commentary:
-;;
+
+;; Client for AI-powered code completion(s).
 
 ;;; Code:
 
@@ -33,9 +35,6 @@ Generate yours at https://huggingface.co/settings/tokens."
      (t
       (-map (lambda (elem) (alist-get 'generated_text elem)) parsed)))))
 
-(defun starhugger--get-first-generated-text (str)
-  (seq-elt (starhugger--get-all-generated-texts str) 0))
-
 (defcustom starhugger-generated-buffer (format "*%s*" 'starhugger)
   "Buffer name to log parsed responses."
   :group 'starhugger)
@@ -61,12 +60,33 @@ Generate yours at https://huggingface.co/settings/tokens."
 ;; WHY isn't this documented?!
 (defvar url-http-end-of-headers)
 
+(defcustom starhugger-additional-data-alist
+  '((parameters
+     (return_full_text . :false) ; don't re-include the prompt
+     )
+    (options)
+    ;;
+    )
+  "Detailed paramerlist list.
+An association list to be converted by `json-serialize'. See
+https://huggingface.co/docs/api-inference/detailed_parameters#text-generation-task
+for parameters."
+  :group 'starhugger)
+
 (defvar starhugger--last-returned nil)
+(defvar starhugger-debug nil)
 
 (cl-defun starhugger-request (prompt callback &key data headers method)
   "CALLBACK's arguments: the response's content."
   (dlet ((url-request-method (or method "POST"))
-         (url-request-data (or data (json-serialize `((inputs . ,prompt)))))
+         (url-request-data
+          (or data
+              (json-serialize
+               `((inputs . ,prompt)
+                 (parameters
+                  . ,(alist-get 'parameters starhugger-additional-data-alist))
+                 (options
+                  . ,(alist-get 'options starhugger-additional-data-alist))))))
          (url-request-extra-headers
           (or headers
               `(("Content-Type" . "application/json")
@@ -79,7 +99,7 @@ Generate yours at https://huggingface.co/settings/tokens."
      (lambda (status)
        (-let* ((content (buffer-substring url-http-end-of-headers (point-max))))
          (setq starhugger--last-returned (list :content content))
-         (when (or init-file-debug debug-on-error debug-on-quit)
+         (when starhugger-debug
            (starhugger--log
             starhugger--last-returned
             :status status
@@ -88,16 +108,25 @@ Generate yours at https://huggingface.co/settings/tokens."
          (funcall callback content)))
      nil t)))
 
-(defun starhugger--record-generated (contents &optional display)
+(defun starhugger--record-generated
+    (prompt parsed-response-list &optional display)
   (with-current-buffer (get-buffer-create starhugger-generated-buffer)
+    (when (zerop (buffer-size))
+      (insert "Initial model: " starhugger-model-api-endpoint-url "\n"))
     (goto-char (point-max))
-    (insert "\n\n" contents))
+    (apply #'insert
+           "\n> "
+           prompt
+           "\n\n"
+           (-interpose "\n\n" parsed-response-list))
+    (insert "\n"))
   (when display
     (save-selected-window
       (pop-to-buffer starhugger-generated-buffer))))
 
-(defcustom starhugger-strip-prompt-before-insert t
-  "Whether to remove the prompt in the parsed response before inserting."
+(defcustom starhugger-strip-prompt-before-insert nil
+  "Whether to remove the prompt in the parsed response before inserting.
+Enable this when the return_full_text parameter isn't honored."
   :group 'starhugger)
 
 (defcustom starhugger-end-token "<|endoftext|>"
@@ -109,7 +138,7 @@ Generate yours at https://huggingface.co/settings/tokens."
   :group 'starhugger)
 
 (defun starhugger--post-process-content
-    (generated-text prompt &optional notify-end)
+    (generated-text &optional notify-end prompt)
   (-->
    generated-text
    (if starhugger-strip-prompt-before-insert
@@ -118,7 +147,7 @@ Generate yours at https://huggingface.co/settings/tokens."
    (if starhugger-strip-end-token
        (-let* ((end-flag (string-suffix-p starhugger-end-token it)))
          (when (and end-flag notify-end)
-           (message "%s received from %s!"
+           (message "%s received from %s !"
                     starhugger-end-token
                     starhugger-model-api-endpoint-url))
          (if end-flag
@@ -126,40 +155,80 @@ Generate yours at https://huggingface.co/settings/tokens."
            it))
      it)))
 
+(defvar-local starhugger--last-prompt-beg-pos nil)
+
+(defun starhugger--record-last-prompt-beg-pos (pos)
+  "Save POS into `starhugger--last-prompt-beg-pos' locally.
+The said variable is used to continue completion from there to
+the point. Because only some certain keys are used for
+continuation, after the next command, set it back to `nil' (1).
+Since inserting is asynchronous, the time next command's
+insertion happen will happen after (1) so the variable won't stay
+`nil' (if inserting happens)."
+  (setq starhugger--last-prompt-beg-pos pos)
+  (letrec ((fn
+            (lambda ()
+              (setq starhugger--last-prompt-beg-pos nil)
+              (remove-hook 'post-command-hook fn t))))
+    (add-hook 'post-command-hook fn nil t)))
+
+(defun starhugger-turn-off-completion-in-region-mode ()
+  "Use this when inserting parsed response.
+To prevent conflicts with the keys such as TAB."
+  (completion-in-region-mode 0))
+
+(defvar starhugger-pre-insert-hook
+  '(starhugger-turn-off-completion-in-region-mode)
+  "Hook run before inserting the parsed response.")
+
 ;;;###autoload
-(defun starhugger-query (prompt &optional insert-pos display)
+(cl-defun starhugger-query (prompt &key beg-pos end-pos display)
   "Interactive send PROMPT to the model.
-Non-nil INSERT-POS (interactively when prefix arg: active
-region's end of current point): insert the parsed response there.
-Non-nil DISPLAY: displays the parsed response."
+Non-nil END-POS (interactively when prefix arg: active region's
+end of current point): insert the parsed response there.
+BEG-POS:the beginning of the prompt area. Non-nil DISPLAY:
+displays the parsed response."
   (interactive (list
                 (read-string "Prompt: "
                              (and (use-region-p)
                                   (buffer-substring-no-properties
                                    (region-beginning) (region-end))))
+                :end-pos
                 (and current-prefix-arg
                      (if (use-region-p)
                          (region-end)
                        (point)))
-                t))
-  (-let* ((pt0 (or insert-pos (point)))
+                :display t))
+  (-let* ((pt0 (or end-pos (point)))
           (buf0 (current-buffer))
           (modtick (buffer-modified-tick)))
     (starhugger-request
      prompt
      (lambda (returned)
        (with-current-buffer buf0
-         (-let* ((gen-text (starhugger--get-first-generated-text returned))
-                 (insert-flag
-                  (and insert-pos (equal modtick (buffer-modified-tick)))))
-           (when insert-flag
-             (deactivate-mark)
-             (goto-char pt0)
-             (insert
-              (starhugger--post-process-content gen-text prompt
-                                                (or insert-pos display))))
-           (starhugger--record-generated gen-text
-                                         (and display (not insert-pos)))))))))
+         (-let* ((pt1 (point))
+                 (gen-texts (starhugger--get-all-generated-texts returned))
+                 (first-gen-text (cl-first gen-texts))
+                 (insert-action
+                  (and end-pos
+                       (equal modtick (buffer-modified-tick))
+                       (lambda ()
+                         (run-hooks 'starhugger-pre-insert-hook)
+                         (starhugger--record-last-prompt-beg-pos beg-pos)
+                         (insert
+                          (starhugger--post-process-content first-gen-text
+                                                            (or end-pos display)
+                                                            prompt))))))
+           (when insert-action
+             (if (= pt0 pt1)
+                 (progn
+                   (deactivate-mark)
+                   (funcall insert-action))
+               (save-excursion
+                 (goto-char pt0)
+                 (funcall insert-action))))
+           (starhugger--record-generated prompt gen-texts
+                                         (and display (not end-pos)))))))))
 
 (defun starhugger--complete-default-beg-position ()
   (-->
@@ -177,30 +246,27 @@ Non-nil DISPLAY: displays the parsed response."
 BEGINNING defaults to start of current line, paragraph or defun,
 whichever is the furthest.
 
-Interactively, you may find
-`starhugger-complete-prompt-buffer-beginning-to-point' performs
+Interactively, you may find `starhugger-complete*' performs
 better as it takes from the buffer start instead."
   (interactive)
   (-let* ((beg (or beginning (starhugger--complete-default-beg-position)))
           (prompt (buffer-substring-no-properties beg (point))))
-    (starhugger-query prompt (point))))
+    (starhugger-query prompt :beg-pos beg :end-pos (point))))
 
 ;;;###autoload
-(defun starhugger-complete-prompt-buffer-beginning-to-point ()
+(defun starhugger-complete* ()
   "Perform completion by sending all texts before current point as prompt.
 Just `starhugger-complete' under the hood."
   (interactive)
   (starhugger-complete (point-min)))
 
-(defcustom starhugger-complete-commands
-  '(starhugger-complete starhugger-complete-prompt-buffer-beginning-to-point)
-  "Commands that by default, pressing TAB after those will continue it.
-Enable `starhugger-global-mode' first."
-  :group 'starhugger)
+(defun starhugger-complete-from-last-prompt ()
+  (interactive)
+  (starhugger-complete starhugger--last-prompt-beg-pos))
 
 ;;;###autoload
 (defun starhugger--continue-complete-menu-item-filter (_)
-  (and (member last-command starhugger-complete-commands) last-command))
+  (and starhugger--last-prompt-beg-pos #'starhugger-complete-from-last-prompt))
 
 ;;;###autoload
 (progn
@@ -208,6 +274,7 @@ Enable `starhugger-global-mode' first."
     "Currently doesn't do very much.
 Beside enabling successive completions.
 This doesn't trigger loading `starhugger.el'."
+    :group 'starhugger
     :global t
     :keymap
     (let* ((tab-item
