@@ -38,3 +38,5 @@ The performance may not be great, but there are asynchronous so Emacs won't be b
 The first call usually doesn't return the completed code as expected, you can call the command successively, or enable ~(starhugger-global-mode)~ and press TAB to repeat.
 
 Remember to set ~starhugger-api-token~ (from https://huggingface.co/settings/tokens), otherwise you may easily get hit by the limit rate.
+
+Demo: [[https://www.reddit.com/r/emacs/comments/13dlycc/bigcodestarcoder_integration]].
