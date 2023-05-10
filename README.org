@@ -31,7 +31,7 @@ Add one of those to your configuration. This package also requires [[https://git
 
 * Usage
 
-Call ~starhugger-complete~ or ~starhugger-complete-using-from-buffer-begininng~ directly or bind to your key(s) of choice.
+Call ~starhugger-complete~ or ~starhugger-complete-prompt-buffer-beginning-to-point~ directly or bind to your key(s) of choice.
 
 The performance may not be great, but there are asynchronous so Emacs won't be blocked.
 

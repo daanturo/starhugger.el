@@ -19,7 +19,7 @@
 Generate yours at https://huggingface.co/settings/tokens."
   :group 'starhugger)
 
-(defcustom starhugger-model-endpoint-api-url
+(defcustom starhugger-model-api-endpoint-url
   "https://api-inference.huggingface.co/models/bigcode/starcoder"
   "End point URL to make HTTP request."
   :group 'starhugger)
@@ -75,7 +75,7 @@ Generate yours at https://huggingface.co/settings/tokens."
                      `(("Authorization" .
                         ,(format "Bearer %s" starhugger-api-token))))))))
     (url-retrieve
-     starhugger-model-endpoint-api-url
+     starhugger-model-api-endpoint-url
      (lambda (status)
        (-let* ((content (buffer-substring url-http-end-of-headers (point-max))))
          (setq starhugger--last-returned (list :content content))
@@ -120,7 +120,7 @@ Generate yours at https://huggingface.co/settings/tokens."
          (when (and end-flag notify-end)
            (message "%s received from %s!"
                     starhugger-end-token
-                    starhugger-model-endpoint-api-url))
+                    starhugger-model-api-endpoint-url))
          (if end-flag
              (string-remove-suffix starhugger-end-token it)
            it))
@@ -175,20 +175,25 @@ Non-nil DISPLAY: displays the parsed response."
 (defun starhugger-complete (&optional beginning)
   "Perform completion using the prompt from BEGINNING to current point.
 BEGINNING defaults to start of current line, paragraph or defun,
-whichever is the furthest."
+whichever is the furthest.
+
+Interactively, you may find
+`starhugger-complete-prompt-buffer-beginning-to-point' performs
+better as it takes from the buffer start instead."
   (interactive)
   (-let* ((beg (or beginning (starhugger--complete-default-beg-position)))
           (prompt (buffer-substring-no-properties beg (point))))
     (starhugger-query prompt (point))))
 
 ;;;###autoload
-(defun starhugger-complete-using-from-buffer-begininng ()
-  "Perform completion by sending all texts before current point as prompt."
+(defun starhugger-complete-prompt-buffer-beginning-to-point ()
+  "Perform completion by sending all texts before current point as prompt.
+Just `starhugger-complete' under the hood."
   (interactive)
   (starhugger-complete (point-min)))
 
 (defcustom starhugger-complete-commands
-  '(starhugger-complete starhugger-complete-using-from-buffer-begininng)
+  '(starhugger-complete starhugger-complete-prompt-buffer-beginning-to-point)
   "Commands that by default, pressing TAB after those will continue it.
 Enable `starhugger-global-mode' first."
   :group 'starhugger)
@@ -200,7 +205,8 @@ Enable `starhugger-global-mode' first."
 ;;;###autoload
 (progn
   (define-minor-mode starhugger-global-mode
-    "Currently doesn't do very much."
+    "Currently doesn't do very much.
+Beside enabling successive completions."
     :global t
     :keymap
     (let* ((tab-item `(menu-item "" nil :filter
