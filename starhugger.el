@@ -1,7 +1,7 @@
 ;; -*- lexical-binding: t; -*-
 
-;; Version: 0.1.2
-;; Package-Requires: ((emacs "28.2") (compat "29.1.4.0") (dash "2.18.0"))
+;; Version: 0.1.3
+;; Package-Requires: ((emacs "28.2") (compat "29.1.4.0") (dash "2.18.0") (spinner "1.7.4"))
 
 ;;; Commentary:
 
@@ -47,6 +47,13 @@ Generate yours at https://huggingface.co/settings/tokens."
   "Whether to insert this time format before each entry in the log buffer."
   :group 'starhugger)
 
+(defcustom starhugger-max-prompt-length (* 1024 20)
+  "Max length of the prompt to send.
+\"`inputs` tokens + `max_new_tokens` must be <= 8192\". This
+number was determined using trial and errors and is
+model-dependant."
+  :group 'starhugger)
+
 (defun starhugger--log (&rest args)
   (with-current-buffer (get-buffer-create starhugger-log-buffer)
     (dlet ((inhibit-read-only t))
@@ -56,6 +63,15 @@ Generate yours at https://huggingface.co/settings/tokens."
       (dolist (obj (-interpose " " args))
         (insert (format "%s" obj)))
       (insert "\n"))))
+
+(declare-function spinner-start "spinner")
+(defvar starhugger--spinner-added-type nil)
+(defun starhugger--spinner-start ()
+  (unless starhugger--spinner-added-type
+    (require 'spinner)
+    (push '(starhugger . ["🤗" "⭐" "🌟" "🌠" "💫"]) spinner-types)
+    (setq starhugger--spinner-added-type t))
+  (spinner-start 'starhugger 5))
 
 ;; WHY isn't this documented?!
 (defvar url-http-end-of-headers)
@@ -73,40 +89,51 @@ https://huggingface.co/docs/api-inference/detailed_parameters#text-generation-ta
 for parameters."
   :group 'starhugger)
 
+(defun starhugger--json-serialize (object &rest args)
+  "Like (`json-serialize' OBJECT @ARGS).
+But prevent errors about multi-byte characters."
+  (encode-coding-string (apply #'json-serialize object args) 'utf-8))
+
 (defvar starhugger--last-returned nil)
 (defvar starhugger-debug nil)
 
 (cl-defun starhugger-request (prompt callback &key data headers method)
   "CALLBACK's arguments: the response's content."
-  (dlet ((url-request-method (or method "POST"))
-         (url-request-data
-          (or data
-              (json-serialize
-               `((inputs . ,prompt)
-                 (parameters
-                  . ,(alist-get 'parameters starhugger-additional-data-alist))
-                 (options
-                  . ,(alist-get 'options starhugger-additional-data-alist))))))
-         (url-request-extra-headers
-          (or headers
-              `(("Content-Type" . "application/json")
-                ,@
-                (and (< 0 (length starhugger-api-token))
-                     `(("Authorization" .
-                        ,(format "Bearer %s" starhugger-api-token))))))))
-    (url-retrieve
-     starhugger-model-api-endpoint-url
-     (lambda (status)
-       (-let* ((content (buffer-substring url-http-end-of-headers (point-max))))
-         (setq starhugger--last-returned (list :content content))
-         (when starhugger-debug
-           (starhugger--log
-            starhugger--last-returned
-            :status status
-            :header
-            (buffer-substring (point-min) url-http-end-of-headers)))
-         (funcall callback content)))
-     nil t)))
+  (-let* ((prompt*
+           (substring prompt
+                      (max 0 (- (length prompt) starhugger-max-prompt-length))))
+          (spinner-stop-fn (starhugger--spinner-start)))
+    (dlet ((url-request-method (or method "POST"))
+           (url-request-data
+            (or data
+                (starhugger--json-serialize
+                 `((inputs . ,prompt*)
+                   (parameters
+                    . ,(alist-get 'parameters starhugger-additional-data-alist))
+                   (options
+                    . ,(alist-get 'options starhugger-additional-data-alist))))))
+           (url-request-extra-headers
+            (or headers
+                `(("Content-Type" . "application/json")
+                  ,@
+                  (and (< 0 (length starhugger-api-token))
+                       `(("Authorization" .
+                          ,(format "Bearer %s" starhugger-api-token))))))))
+      (url-retrieve
+       starhugger-model-api-endpoint-url
+       (lambda (status)
+         (-let* ((content
+                  (buffer-substring url-http-end-of-headers (point-max))))
+           (setq starhugger--last-returned (list :content content))
+           (when starhugger-debug
+             (starhugger--log
+              starhugger--last-returned
+              :status status
+              :header
+              (buffer-substring (point-min) url-http-end-of-headers)))
+           (funcall spinner-stop-fn)
+           (funcall callback content)))
+       nil t))))
 
 (defun starhugger--record-generated
     (prompt parsed-response-list &optional display)
@@ -134,7 +161,7 @@ Enable this when the return_full_text parameter isn't honored."
   :group 'starhugger)
 
 (defcustom starhugger-strip-end-token t
-  "Whether to remove `starhugger-end-token' from the end of parsed response before inserting."
+  "Whether to remove `starhugger-end-token' before inserting."
   :group 'starhugger)
 
 (defun starhugger--post-process-content
@@ -247,7 +274,8 @@ BEGINNING defaults to start of current line, paragraph or defun,
 whichever is the furthest.
 
 Interactively, you may find `starhugger-complete*' performs
-better as it takes from the buffer start instead."
+better as it takes as much as `starhugger-max-prompt-length'
+allows, starting from buffer beginning."
   (interactive)
   (-let* ((beg (or beginning (starhugger--complete-default-beg-position)))
           (prompt (buffer-substring-no-properties beg (point))))

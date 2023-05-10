@@ -2,7 +2,7 @@ An unfancy Emacs extension for [[https://huggingface.co/bigcode/starcoder]] inte
 
 * Installation
 
-Add one of those to your configuration. This package also requires [[https://github.com/emacs-compat/compat][compat]] and [[https://github.com/magnars/dash.el][dash]] as dependencies.
+Add one of those to your configuration.
 
 #+begin_src elisp
 
@@ -22,6 +22,8 @@ Add one of those to your configuration. This package also requires [[https://git
 #+end_src
 
 Or any package manager of your choice.
+
+This package also requires those dependencies: [[https://github.com/emacs-compat/compat][compat]], [[https://github.com/magnars/dash.el][dash]], [[https://github.com/Malabarba/spinner.el][spinner]].
 
 * Usage
 

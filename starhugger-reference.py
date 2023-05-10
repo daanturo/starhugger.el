@@ -1,0 +1,30 @@
+#!/usr/bin/env python
+
+# https://huggingface.co/docs/api-inference/quicktour
+
+import json
+import os
+import sys
+from pprint import pprint
+
+import requests
+
+# API_URL = "https://api-inference.huggingface.co/models/gpt2"
+API_URL = "https://api-inference.huggingface.co/models/bigcode/starcoder"
+
+headers = {"Content-Type": "application/json"}
+
+API_TOKEN = os.getenv("API_TOKEN", "")
+if 0 < len(API_TOKEN):
+    headers = {**headers, "Authorization": f"Bearer {API_TOKEN}"}
+
+
+def query(payload):
+    data = json.dumps({"inputs": payload, "parameters": {"return_full_text": False}})
+    response = requests.request("POST", API_URL, headers=headers, data=data)
+    return json.loads(response.content.decode("utf-8"))
+
+
+data = query(sys.argv[1])
+
+pprint(data)
