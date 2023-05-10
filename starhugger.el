@@ -100,9 +100,35 @@ Generate yours at https://huggingface.co/settings/tokens."
   "Whether to remove the prompt in the parsed response before inserting."
   :group 'starhugger)
 
+(defcustom starhugger-end-token "<|endoftext|>"
+  "End of sentence token."
+  :group 'starhugger)
+
+(defcustom starhugger-strip-end-token t
+  "Whether to remove `starhugger-end-token' from the end of parsed response before inserting."
+  :group 'starhugger)
+
+(defun starhugger--post-process-content
+    (generated-text prompt &optional notify-end)
+  (-->
+   generated-text
+   (if starhugger-strip-prompt-before-insert
+       (string-remove-prefix prompt it)
+     it)
+   (if starhugger-strip-end-token
+       (-let* ((end-flag (string-suffix-p starhugger-end-token it)))
+         (when (and end-flag notify-end)
+           (message "%s received from %s!"
+                    starhugger-end-token
+                    starhugger-model-endpoint-api-url))
+         (if end-flag
+             (string-remove-suffix starhugger-end-token it)
+           it))
+     it)))
+
 ;;;###autoload
-(defun starhugger-query (query-str &optional insert-pos display)
-  "Interactive send QUERY-STR to the model.
+(defun starhugger-query (prompt &optional insert-pos display)
+  "Interactive send PROMPT to the model.
 Non-nil INSERT-POS (interactively when prefix arg: active
 region's end of current point): insert the parsed response there.
 Non-nil DISPLAY: displays the parsed response."
@@ -120,7 +146,7 @@ Non-nil DISPLAY: displays the parsed response."
           (buf0 (current-buffer))
           (modtick (buffer-modified-tick)))
     (starhugger-request
-     query-str
+     prompt
      (lambda (returned)
        (with-current-buffer buf0
          (-let* ((gen-text (starhugger--get-first-generated-text returned))
@@ -130,12 +156,10 @@ Non-nil DISPLAY: displays the parsed response."
              (deactivate-mark)
              (goto-char pt0)
              (insert
-              (if starhugger-strip-prompt-before-insert
-                  (string-remove-prefix query-str gen-text)
-                gen-text)))
+              (starhugger--post-process-content gen-text prompt
+                                                (or insert-pos display))))
            (starhugger--record-generated gen-text
-                                         (and display
-                                              (not insert-pos)))))))))
+                                         (and display (not insert-pos)))))))))
 
 (defun starhugger--complete-default-beg-position ()
   (-->
