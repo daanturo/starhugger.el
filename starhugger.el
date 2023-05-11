@@ -1,6 +1,6 @@
 ;; -*- lexical-binding: t; -*-
 
-;; Version: 0.1.3
+;; Version: 0.1.4
 ;; Package-Requires: ((emacs "28.2") (compat "29.1.4.0") (dash "2.18.0") (spinner "1.7.4"))
 
 ;;; Commentary:
@@ -99,8 +99,12 @@ But prevent errors about multi-byte characters."
 (defvar starhugger--last-request nil)
 (defvar starhugger-debug nil)
 
+(defvar starhugger-before-request-hook '()
+  "Hook run before making an HTTP request.")
+
 (cl-defun starhugger--request (prompt callback &key data headers method +parameters +options)
   "CALLBACK's arguments: the response's content."
+  (run-hooks 'starhugger-before-request-hook)
   (-let* ((prompt*
            (substring prompt
                       (max 0 (- (length prompt) starhugger-max-prompt-length))))
@@ -357,6 +361,101 @@ This doesn't trigger loading `starhugger.el'."
     (if starhugger-global-mode
         (progn)
       (progn))))
+
+;;;; Overlay suggestion UI
+
+(defvar-local starhugger--overlay nil)
+
+(defface starhugger-suggestion-face '((t :foreground "gray" :italic t))
+  "Face for suggestions."
+  :group 'starhugger)
+
+(defvar-local starhugger--suggestion-list '())
+
+(define-minor-mode starhugger-active-suggestion-mode
+  nil
+  :global nil
+  :keymap `( ;
+            (,(kbd "<remap> <keyboard-quit>") . starhugger-dismiss-suggestion)
+            ;;
+            )
+  (if starhugger-active-suggestion-mode
+      (progn)
+    (progn
+      (delete-overlay starhugger--overlay)
+      (setq starhugger--suggestion-list '()))))
+
+(defun starhugger--show-overlay (suggt)
+  (overlay-put
+   starhugger--overlay
+   'after-string
+   (propertize suggt 'face 'starhugger-suggestion-face)))
+
+(defun starhugger--init-overlay (suggt)
+  (when (and starhugger--overlay (overlay-buffer starhugger--overlay))
+    (delete-overlay starhugger--overlay))
+  (setq starhugger--overlay (make-overlay (point) (point)))
+  (setq starhugger--suggestion-list
+        `(,@(delete suggt starhugger--suggestion-list) ,suggt))
+  (starhugger--show-overlay suggt)
+  (starhugger-active-suggestion-mode))
+
+;;;###autoload
+(defun starhugger-trigger-suggestion (&optional force-new)
+  (interactive (list starhugger-active-suggestion-mode))
+  (-let* ((buf (current-buffer)))
+    (starhugger--query-and-record
+     (buffer-substring (point-min) (point))
+     (-lambda ((suggt . _))
+       (with-current-buffer buf
+         (starhugger--init-overlay suggt)))
+     :spin t
+     :force-new force-new)))
+
+(defun starhugger-dismiss-suggestion ()
+  (interactive)
+  (starhugger-active-suggestion-mode 0))
+
+(defun starhugger-accept-suggestion ()
+  (interactive)
+  (goto-char (overlay-start starhugger--overlay))
+  (insert (overlay-get starhugger--overlay 'after-string))
+  (starhugger-dismiss-suggestion))
+
+(defun starhugger--current-suggestion-index ()
+  (-let* ((cur (overlay-get starhugger--overlay 'after-string)))
+    (-elem-index cur starhugger--suggestion-list)))
+
+(defun starhugger-show-prev-suggestion ()
+  "Show the previous suggestion."
+  (interactive)
+  (-let* ((cur-idx (starhugger--current-suggestion-index))
+          (leng (length starhugger--suggestion-list))
+          (prev-idx (mod (- cur-idx 1) leng)))
+    (starhugger--show-overlay (elt starhugger--suggestion-list prev-idx))))
+
+(defun starhugger-show-next-suggestion ()
+  "Show the next suggestion, or when showing the latest, fetching new one instead."
+  (interactive)
+  (-let* ((cur-idx (starhugger--current-suggestion-index))
+          (leng (length starhugger--suggestion-list))
+          (next-idx (mod (+ cur-idx 1) leng)))
+    (if (<= (- leng 1) cur-idx)
+        (starhugger-trigger-suggestion t)
+      (starhugger--show-overlay (elt starhugger--suggestion-list next-idx)))))
+
+(defun starhugger-completing-read-from-got-suggestion-list ()
+  (interactive)
+  (-let* ((cands starhugger--suggestion-list)
+          (accepted
+           (completing-read
+            "Suggestions: "
+            (lambda (string pred action)
+              (if (eq action 'metadata)
+                  `(metadata)
+                (complete-with-action action cands string pred))))))
+    (insert accepted)
+    (starhugger-dismiss-suggestion)))
 
 ;;; starhugger.el ends here
 

@@ -27,18 +27,46 @@ This package also requires those dependencies: [[https://github.com/emacs-compat
 
 * Usage
 
-Call ~M-x~ ~starhugger-complete~ or ~starhugger-complete*~ directly or bind them to your key(s) of choice.
+** Primary commands
+
+- Direct completion: call ~M-x~ ~starhugger-complete~ or ~starhugger-complete*~ directly or bind them to your key(s) of choice. They will insert suggestion at point.
+
+The first call usually doesn't return the completed code as expected, you can call the command successively, or enable ~(starhugger-global-mode)~ and press TAB to repeat.
 
 The performance may not be great, but they are asynchronous so Emacs won't be blocked.
 
-The first call usually doesn't return the completed code as expected, you can call the command successively, or enable ~(starhugger-global-mode)~ and press TAB to repeat.
+- Previewing overlay: ~starhugger-trigger-suggestion~ will show the suggestion.
+
+~M-x~ ~starhugger-show-next-suggestion~ and ~starhugger-show-prev-suggestion~ to cycle suggestions.
+
+~M-x~ ~starhugger-accept-suggestion~ to insert current suggestion.
+
+~starhugger-dismiss-suggestion~ (bound to =C-g= by default when showing) to cancel.
+
+** Notes
 
 Remember to set ~starhugger-api-token~ (from [[https://huggingface.co/settings/tokens]]), otherwise you may easily get hit by the limit rate.
 
 Demo: [[https://www.reddit.com/r/emacs/comments/13dlycc/bigcodestarcoder_integration]].
 
-* Unimplemented
+* TODO
 
-- Support for auto-completing when typing: investigate Emacs's built-in ~completion-at-point-functions~'s asynchronous capabilities, another framework?
+- ✓ +Support setting parameters at [[https://huggingface.co/docs/api-inference/detailed_parameters#text-generation-task]]+
 
-- VSCode-like previewing overlays: take after [[https://github.com/zerolfx/copilot.el]]
+- ✓ +VSCode-like previewing overlays: take after [[https://github.com/zerolfx/copilot.el]]+
+
+- ✓ +Switching suggestion+
+
+- ? Accept suggestion partially by words or lines
+
+- ? TAB to complete more until "<|endoftext|>"
+
+- ? Fill-in-the-middle <FILL_HERE> support
+
+- ? Temporarily save the immediately previous suggestion list
+
+- ? More robust and reliable method to show a different suggestion
+
+- ? Batch-previewing multiple suggestions, maybe with syntax highlighting
+
+- ? Support for auto-completing when typing: investigate Emacs's built-in ~completion-at-point-functions~'s asynchronous capabilities, or another framework?
