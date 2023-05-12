@@ -1,6 +1,6 @@
 ;; -*- lexical-binding: t; -*-
 
-;; Version: 0.1.5
+;; Version: 0.1.6
 ;; Package-Requires: ((emacs "28.2") (compat "29.1.4.0") (dash "2.18.0") (spinner "1.7.4"))
 
 ;;; Commentary:
@@ -396,19 +396,6 @@ all of them are relevant all the time."
     (progn
       (delete-overlay starhugger--overlay))))
 
-(defun starhugger--show-overlay (suggt)
-  (overlay-put
-   starhugger--overlay
-   'after-string
-   (propertize suggt 'face 'starhugger-suggestion-face)))
-
-(defun starhugger--current-overlay-suggestion (&optional no-end-token)
-  (-->
-   (overlay-get starhugger--overlay 'after-string)
-   (if no-end-token
-       (string-remove-suffix starhugger-end-token it)
-     it)))
-
 (defun starhugger--suggestion-state ()
   (vector (point) (thing-at-point 'line t)))
 
@@ -418,10 +405,35 @@ all of them are relevant all the time."
      (-lambda ((state suggt)) (and (or all (equal cur-state state)) suggt))
      (ring-elements starhugger--suggestion-ring))))
 
+(defun starhugger--current-overlay-suggestion (&optional no-end-token)
+  (-->
+   (overlay-get starhugger--overlay 'starhugger-suggestion)
+   (if no-end-token
+       (string-remove-suffix starhugger-end-token it)
+     it)))
+
+(defun starhugger--show-overlay (suggt)
+  (overlay-put starhugger--overlay 'starhugger-suggestion suggt)
+  (-let* ((suggt*
+           (propertize suggt
+                       'face 'starhugger-suggestion-face
+                       ;; allow placing the cursor before the overlay when
+                       ;; 'before-string
+                       'cursor t)))
+    ;; at end of buffer, 'display doesn't show anything because
+    ;; `overlay-starr'=`overlay-end'
+    (if (eobp)
+        (overlay-put starhugger--overlay 'before-string suggt*)
+      ;; currently I can't find a way to to achieve this:
+
+      ;; 〈before〉|〈overlay〉〈after〉
+
+      ;; so the workaround is too concatenate "overlay" and "after" and overlay
+      ;; "after"
+      (overlay-put starhugger--overlay
+                   'display (concat suggt* (buffer-substring (point) (+ (point) 1)))))))
+
 (defun starhugger--init-overlay (suggt)
-  (when (and starhugger--overlay (overlay-buffer starhugger--overlay))
-    (delete-overlay starhugger--overlay))
-  (setq starhugger--overlay (make-overlay (point) (point)))
   (unless (ring-p starhugger--suggestion-ring)
     (setq starhugger--suggestion-ring
           (make-ring starhugger-suggestion-ring-size)))
@@ -429,6 +441,13 @@ all of them are relevant all the time."
           (elem (list state suggt)))
     (unless (ring-member starhugger--suggestion-ring elem)
       (ring-insert starhugger--suggestion-ring elem)))
+  (when (and starhugger--overlay (overlay-buffer starhugger--overlay))
+    (delete-overlay starhugger--overlay))
+  (setq starhugger--overlay
+        (make-overlay (point) (+ (point) 1)
+                      nil
+                      ;; allow inserting before the overlay
+                      t t))
   (starhugger--show-overlay suggt)
   (starhugger-active-suggestion-mode))
 
@@ -455,28 +474,32 @@ all of them are relevant all the time."
   (insert (starhugger--current-overlay-suggestion starhugger-strip-end-token))
   (starhugger-dismiss-suggestion))
 
-;; (defun starhugger-accept-suggestion-partially (by)
-;;   "Insert a part of active suggestion by the function BY.
-;; Accept the part that is before the point after calling BY. Note
-;; that BY should be `major-mode' dependant."
-;;   (goto-char (overlay-start starhugger--overlay))
-;;   (-let* ((suggt
-;;            (starhugger--current-overlay-suggestion starhugger-strip-end-token))
-;;           (inserting
-;;            (with-temp-buffer
-;;              (insert suggt)
-;;              (goto-char (point-min))
-;;              (funcall by)
-;;              (buffer-substring (point-min) (point)))))
-;;     (insert inserting)
-;;     (if (equal suggt inserting)
-;;         (starhugger-dismiss-suggestion)
-;;       (starhugger--show-overlay (string-remove-prefix inserting suggt)))))
+(defun starhugger-accept-suggestion-partially (by &rest args)
+  "Insert a part of active suggestion by the function BY.
+Accept the part that is before the point after applying BY on
+ARGS. Note that BY should be `major-mode' dependant."
+  (goto-char (overlay-start starhugger--overlay))
+  (-let* ((suggt
+           (starhugger--current-overlay-suggestion starhugger-strip-end-token))
+          (inserting
+           (with-temp-buffer
+             (insert suggt)
+             (goto-char (point-min))
+             (apply by args)
+             (buffer-substring (point-min) (point)))))
+    (insert inserting)
+    (if (equal suggt inserting)
+        (starhugger-dismiss-suggestion)
+      (starhugger--show-overlay (string-remove-prefix inserting suggt)))))
 
-;; (defun starhugger-accept-suggestion-by-word (n)
-;;   "Insert N words from the suggestion."
-;;   (interactive "p")
-;;   (starhugger-accept-suggestion-partially (lambda () (forward-word n))))
+(defun starhugger-accept-suggestion-by-word (n)
+  "Insert N words from the suggestion."
+  (interactive "p")
+  (starhugger-accept-suggestion-partially #'forward-word n))
+(defun starhugger-accept-suggestion-by-line (n)
+  "Insert N lines from the suggestion."
+  (interactive "p")
+  (starhugger-accept-suggestion-partially #'forward-line n))
 
 (defun starhugger--get-prev-suggestion-index (delta suggestions)
   (-let* ((leng (length suggestions))
