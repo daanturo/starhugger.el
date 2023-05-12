@@ -21,7 +21,7 @@ if 0 < len(API_TOKEN):
 
 params = {
     "return_full_text": False,
-    # "num_return_sequences": 2,
+    "num_return_sequences": 2,
     # "max_new_tokens": 256,
     # "temperature": random.uniform(0, 2.0)
 }

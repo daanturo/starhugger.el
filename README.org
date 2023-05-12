@@ -45,9 +45,12 @@ The performance may not be great, but they are asynchronous so Emacs won't be bl
 
 ** Notes
 
+
 Remember to set ~starhugger-api-token~ (from [[https://huggingface.co/settings/tokens]]), otherwise you may easily get hit by the limit rate.
 
 Demo: [[https://www.reddit.com/r/emacs/comments/13dlycc/bigcodestarcoder_integration]].
+
+This package is currently in a very turbulent state, expect breakages if you are using it!
 
 * TODO
 
@@ -65,7 +68,7 @@ Demo: [[https://www.reddit.com/r/emacs/comments/13dlycc/bigcodestarcoder_integra
 
 - ? Fill-in-the-middle <FILL_HERE> support
 
-- ? Temporarily save the immediately previous suggestion list
+- ✓ +Temporarily save the immediately previous suggestion list+
 
 - ? More robust and reliable method to show a different suggestion
 
