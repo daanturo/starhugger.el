@@ -29,7 +29,7 @@ This package also requires those dependencies: [[https://github.com/emacs-compat
 
 ** Primary commands
 
-- Direct completion: call ~M-x~ ~starhugger-complete~ or ~starhugger-complete*~ directly or bind them to your key(s) of choice. They will insert suggestion at point.
+- Direct completion: call ~M-x~ ~starhugger-complete~ or ~starhugger-complete*~ directly or bind them to your key(s) of choice. They will insert suggestion at point (turns out the overlay approach below is more useful, so maybe they will be deprecated).
 
 The first call usually doesn't return the completed code as expected, you can call the command successively, or enable ~(starhugger-global-mode)~ and press TAB to repeat.
 
@@ -60,6 +60,8 @@ Demo: [[https://www.reddit.com/r/emacs/comments/13dlycc/bigcodestarcoder_integra
 - ? Accept suggestion partially by words or lines
 
 - ? TAB to complete more until "<|endoftext|>"
+
+- ? Let ~starhugger-trigger-suggestion~ fetch about 3 suggestions to quickly cycle
 
 - ? Fill-in-the-middle <FILL_HERE> support
 

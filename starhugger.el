@@ -315,7 +315,7 @@ is optional arguments."
 
 ;;;###autoload
 (defun starhugger-complete (&optional beginning)
-  "Perform completion using the prompt from BEGINNING to current point.
+  "Insert completion using the prompt from BEGINNING to current point.
 BEGINNING defaults to start of current line, paragraph or defun,
 whichever is the furthest.
 
@@ -329,7 +329,7 @@ allows, starting from buffer beginning."
 
 ;;;###autoload
 (defun starhugger-complete* ()
-  "Perform completion, use as much text as possible before point as prompt.
+  "Insert completion, use as much text as possible before point as prompt.
 Just `starhugger-complete' under the hood."
   (interactive)
   (starhugger-complete (point-min)))
@@ -373,7 +373,7 @@ This doesn't trigger loading `starhugger.el'."
 (defvar-local starhugger--suggestion-list '())
 
 (define-minor-mode starhugger-active-suggestion-mode
-  nil
+  "Not meant to be called normally."
   :global nil
   :keymap `( ;
             (,(kbd "<remap> <keyboard-quit>") . starhugger-dismiss-suggestion)
