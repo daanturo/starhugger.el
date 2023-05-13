@@ -395,6 +395,17 @@ Note that this includes all recently fetched suggestions so not
 all of them are relevant all the time."
   :group 'starhugger)
 
+(defun starhugger--post-self-insert-h ()
+  "Keep the overlay iff the typed character is its prefix."
+  (-let* ((suggt (starhugger--current-overlay-suggestion))
+          (suggt-char (elt suggt 0)))
+    (if (equal suggt-char last-command-event)
+        (starhugger--show-overlay (substring suggt 1))
+      (starhugger-dismiss-suggestion))))
+
+(defvar starhugger-active-suggestion-mode-hook '()
+  nil)
+
 (define-minor-mode starhugger-active-suggestion-mode
   "Not meant to be called normally."
   :global nil
@@ -404,8 +415,10 @@ all of them are relevant all the time."
             ;;
             )
   (if starhugger-active-suggestion-mode
-      (progn)
+      (progn
+        (add-hook 'post-self-insert-hook #'starhugger--post-self-insert-h nil t))
     (progn
+      (remove-hook 'post-self-insert-hook #'starhugger--post-self-insert-h t)
       (delete-overlay starhugger--overlay))))
 
 (defun starhugger--suggestion-state ()
@@ -480,8 +493,8 @@ Use for `starhugger-show-next-suggestion' and for auto mode."
     (starhugger-active-suggestion-mode)))
 
 ;;;###autoload
-(defun starhugger-trigger-suggestion (&optional force-new times-to-fetch)
-  (interactive (list starhugger-active-suggestion-mode))
+(cl-defun starhugger-trigger-suggestion (&key force-new num spin)
+  (interactive (list :force-new starhugger-active-suggestion-mode :spin t))
   (-let* ((buf (current-buffer))
           (pt0 (point))
           (state (starhugger--suggestion-state))
@@ -496,13 +509,12 @@ Use for `starhugger-show-next-suggestion' and for auto mode."
                        (starhugger--add-suggestions-to-ring suggestions state)
                        (when (= 0 fetch-time)
                          (starhugger--init-overlay suggt-1st pt0))
-                       (when (<
-                              fetch-time
-                              (or
-                               times-to-fetch
-                               starhugger-high-number-of-suggestions-to-fetch))
+                       (when (< fetch-time
+                                (or
+                                 num
+                                 starhugger-high-number-of-suggestions-to-fetch))
                          (funcall func (+ fetch-time 1))))))
-                 :spin t
+                 :spin spin
                  :force-new (or force-new (< 0 fetch-time))))))
       (funcall func 0))))
 
@@ -510,39 +522,48 @@ Use for `starhugger-show-next-suggestion' and for auto mode."
   (interactive)
   (starhugger-active-suggestion-mode 0))
 
-(defun starhugger-accept-suggestion ()
-  "Insert the whole suggestion."
-  (interactive)
-  (goto-char (overlay-start starhugger--overlay))
-  (insert (starhugger--current-overlay-suggestion starhugger-strip-end-token))
-  (starhugger-dismiss-suggestion))
+(defcustom starhugger-trigger-suggestion-after-accepting t
+  "Whether to continue triggering suggestion after accepting."
+  :group 'starhugger)
 
-(defun starhugger-accept-suggestion-partially (by &rest args)
+(defun starhugger--accept-suggestion-partially (by &optional args)
   "Insert a part of active suggestion by the function BY.
 Accept the part that is before the point after applying BY on
 ARGS. Note that BY should be `major-mode' dependant."
   (goto-char (overlay-start starhugger--overlay))
-  (-let* ((suggt
-           (starhugger--current-overlay-suggestion starhugger-strip-end-token))
+  (-let* ((suggt (starhugger--current-overlay-suggestion))
+          (suggt* (string-remove-suffix starhugger-end-token suggt))
           (inserting
            (with-temp-buffer
-             (insert suggt)
+             (insert suggt*)
              (goto-char (point-min))
              (apply by args)
              (buffer-substring (point-min) (point)))))
     (insert inserting)
-    (if (equal suggt inserting)
-        (starhugger-dismiss-suggestion)
+    (if (equal suggt* inserting)
+        (progn
+          (starhugger-dismiss-suggestion)
+          (and starhugger-trigger-suggestion-after-accepting
+               (starhugger-trigger-suggestion :spin t)))
       (starhugger--show-overlay (string-remove-prefix inserting suggt)))))
 
+(defun starhugger-accept-suggestion ()
+  "Insert the whole suggestion."
+  (interactive)
+  (starhugger--accept-suggestion-partially (lambda () (goto-char (point-max)))))
+
+(defun starhugger-accept-suggestion-by-character (n)
+  "Insert N characters from the suggestion."
+  (interactive "p")
+  (starhugger--accept-suggestion-partially #'forward-char (list n)))
 (defun starhugger-accept-suggestion-by-word (n)
   "Insert N words from the suggestion."
   (interactive "p")
-  (starhugger-accept-suggestion-partially #'forward-word n))
+  (starhugger--accept-suggestion-partially #'forward-word (list n)))
 (defun starhugger-accept-suggestion-by-line (n)
   "Insert N lines from the suggestion."
   (interactive "p")
-  (starhugger-accept-suggestion-partially #'forward-line n))
+  (starhugger--accept-suggestion-partially #'forward-line (list n)))
 
 (defun starhugger--get-prev-suggestion-index (delta suggestions)
   (-let* ((leng (length suggestions))
@@ -566,7 +587,9 @@ ARGS. Note that BY should be `major-mode' dependant."
           (suggt (elt suggestions prev-idx)))
     (if (zerop prev-idx)
         (starhugger-trigger-suggestion
-         t starhugger-low-number-of-suggestions-to-fetch)
+         :force-new t
+         :num starhugger-low-number-of-suggestions-to-fetch
+         :spin t)
       (starhugger--show-overlay suggt))))
 
 (defun starhugger-completing-read-from-got-suggestion-list (&optional all)

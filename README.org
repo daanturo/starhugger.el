@@ -62,7 +62,7 @@ This package is currently in a very turbulent state, expect breakages if you are
 
 - ✓ +Accept suggestion partially by words or lines+
 
-- ? TAB to complete more until "<|endoftext|>"
+- ✓ +TAB to complete more until "<|endoftext|>"+
 
 - ✓ +Let ~starhugger-trigger-suggestion~ fetch about 3 suggestions to quickly cycle+
 
