@@ -68,7 +68,7 @@ This package is currently in a very turbulent state, expect breakages if you are
 
 - ? More robust and reliable method to show a different suggestion
 
-- ? Batch-previewing multiple suggestions, maybe with syntax highlighting
+- ½ /Batch-previewing multiple suggestions, maybe with syntax highlighting/
 
 - ✓ +"Unaccept" suggestion partially (by moving real text back to suggestion)+
 

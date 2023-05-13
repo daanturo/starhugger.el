@@ -1,6 +1,6 @@
 ;; -*- lexical-binding: t; -*-
 
-;; Version: 0.1.9
+;; Version: 0.1.10
 ;; Package-Requires: ((emacs "28.2") (compat "29.1.4.0") (dash "2.18.0") (spinner "1.7.4"))
 
 ;;; Commentary:
@@ -427,7 +427,7 @@ Use for `starhugger-show-next-suggestion' and for auto mode."
 (defun starhugger--suggestion-state ()
   (vector (point) (thing-at-point 'line t)))
 
-(defun starhugger--relevent-fetched-suggestions (&optional all)
+(defun starhugger--relevant-fetched-suggestions (&optional all)
   (-let* ((cur-state (starhugger--suggestion-state)))
     (-keep
      (-lambda ((state suggt)) (and (or all (equal cur-state state)) suggt))
@@ -444,9 +444,47 @@ Use for `starhugger-show-next-suggestion' and for auto mode."
              (- leng1 starhugger-suggestion-list-size)
              starhugger--suggestion-list)))))
 
-(defun starhugger--ensure-suggestion-list-syntax-highlighed ()
+(defun starhugger--ensure-suggestion-list-syntax-highlighed (&optional force)
+  "Ensure that fetched suggestions are syntax highlighted in current `major-mode'.
+Normally only apply for unhighlighted suggestions, but FORCE
+will (re-)apply for all."
   (-let* ((mjmode major-mode)
-          )))
+          (suggt-list starhugger--suggestion-list)
+          (ptmin (point-min))
+          ;; to minimize parsing, only try to take current top-level if possible
+          ((fnbeg . fnend) (bounds-of-thing-at-point 'defun))
+          (beg (or fnbeg (point-min)))
+          (end (or fnend (point-max))))
+    (if (or force
+            ;; some suggestions are not fontified?
+            (-some
+             (-lambda ((_state str)) (null (object-intervals str)))
+             starhugger--suggestion-list))
+        (-let* ((bufstr (buffer-substring beg end))
+                (fontified-lst
+                 (with-temp-buffer
+                   (delay-mode-hooks
+                     (funcall mjmode))
+                   (-map
+                    (-lambda ((state suggt))
+                      (-->
+                       (cond
+                        ((and (not force) (object-intervals suggt))
+                         suggt)
+                        (t
+                         (erase-buffer)
+                         (insert bufstr)
+                         (-let* (([pt] state)
+                                 ;; adjust relative to top-level
+                                 (pt* (+ pt (- beg) ptmin)))
+                           (goto-char pt*)
+                           (insert suggt)
+                           (font-lock-ensure)
+                           (buffer-substring pt* (+ pt* (length suggt))))))
+                       (list state it)))
+                    suggt-list))))
+          (setq starhugger--suggestion-list fontified-lst))
+      suggt-list)))
 
 (defun starhugger--init-overlay (suggt &optional pt)
   (-let* ((pt (or pt (point))))
@@ -570,7 +608,7 @@ ARGS. Note that BY should be `major-mode' dependant."
 (defun starhugger-show-prev-suggestion (delta)
   "Show the previous DELTA away suggestion."
   (interactive "p")
-  (-let* ((suggestions (starhugger--relevent-fetched-suggestions))
+  (-let* ((suggestions (starhugger--relevant-fetched-suggestions))
           (prev-idx (starhugger--get-prev-suggestion-index delta suggestions))
           (suggt (elt suggestions prev-idx)))
     (starhugger--show-overlay suggt)))
@@ -580,18 +618,27 @@ ARGS. Note that BY should be `major-mode' dependant."
   (interactive "p")
   (starhugger-show-prev-suggestion (- delta)))
 
-(defun starhugger-completing-read-from-got-suggestion-list (&optional all)
+;;;###autoload
+(defun starhugger-show-fetched-suggestions (&optional all)
+  "Display fetched suggestions at point, or ALL positions.
+Note that the number of suggestions are limited by
+`starhugger-suggestion-list-size'."
   (interactive "P")
-  (-let* ((cands (starhugger--relevent-fetched-suggestions all))
-          (accepted
-           (completing-read
-            "Suggestions: "
-            (lambda (string pred action)
-              (if (eq action 'metadata)
-                  `(metadata)
-                (complete-with-action action cands string pred))))))
-    (insert accepted)
-    (starhugger-dismiss-suggestion)))
+  (starhugger--ensure-suggestion-list-syntax-highlighed all)
+  (-let* ((cur-pt (point))
+          (bufname (format "*%s %s*" 'starhugger-suggestions (buffer-name)))
+          (suggestions*
+           (-keep
+            (-lambda
+              (([pt] suggt))
+              (and (or all (= cur-pt pt))
+                   (save-excursion
+                     (goto-char pt)
+                     (concat (buffer-substring (pos-bol) pt) suggt))))
+            starhugger--suggestion-list)))
+    (pop-to-buffer bufname)
+    (erase-buffer)
+    (insert (string-join suggestions* "\n\n\n\n"))))
 
 ;;; starhugger.el ends here
 

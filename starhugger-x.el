@@ -68,8 +68,18 @@ This doesn't trigger loading `starhugger.el'."
         (progn)
       (progn))))
 
-
-
+(defun starhugger-completing-read-from-got-suggestion-list (&optional all)
+  (interactive "P")
+  (-let* ((cands (starhugger--relevant-fetched-suggestions all))
+          (accepted
+           (completing-read
+            "Suggestions: "
+            (lambda (string pred action)
+              (if (eq action 'metadata)
+                  `(metadata)
+                (complete-with-action action cands string pred))))))
+    (insert accepted)
+    (starhugger-dismiss-suggestion)))
 
 ;;; starhugger-x.el ends here
 
