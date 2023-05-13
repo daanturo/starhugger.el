@@ -357,8 +357,11 @@ all of them are relevant all the time."
   (-let* ((suggt (starhugger--current-overlay-suggestion))
           (suggt-char (elt suggt 0)))
     (if (equal suggt-char last-command-event)
-        (starhugger--show-overlay (substring suggt 1))
-      (starhugger-dismiss-suggestion))))
+        (progn
+          (starhugger--show-overlay (substring suggt 1)))
+      (progn
+        ;; (starhugger-dismiss-suggestion)
+        ))))
 
 (defvar starhugger-active-suggestion-mode-hook '()
   nil)
@@ -408,14 +411,17 @@ Use for `starhugger-show-next-suggestion' and for auto mode."
        (string-remove-suffix starhugger-end-token it)
      it)))
 
-(defun starhugger--show-overlay (suggt)
-  (overlay-put starhugger--overlay 'starhugger-suggestion suggt)
-  (-let* ((suggt*
+(defun starhugger--show-overlay (suggt &optional orig-pt)
+  (-let* ((beg-pt (or orig-pt (point)))
+          (suggt*
            (propertize suggt
                        'face 'starhugger-suggestion-face
                        ;; allow placing the cursor before the overlay when
                        ;; 'before-string
                        'cursor t)))
+    (overlay-put starhugger--overlay 'starhugger-suggestion suggt)
+    (when orig-pt
+      (overlay-put starhugger--overlay 'starhugger-original-position orig-pt))
     ;; at end of buffer, 'display doesn't show anything because
     ;; `overlay-starr'=`overlay-end'
     (if (eobp)
@@ -424,10 +430,10 @@ Use for `starhugger-show-next-suggestion' and for auto mode."
 
       ;; 〈before〉|〈overlay〉〈after〉
 
-      ;; so the workaround is too concatenate "overlay" and "after" and overlay
-      ;; "after"
-      (overlay-put starhugger--overlay
-                   'display (concat suggt* (buffer-substring (point) (+ (point) 1)))))))
+      ;; so the workaround is too concatenate "overlay" and "after" and and put
+      ;; the overlay on "after"
+      (overlay-put starhugger--overlay 'display
+                   (concat suggt* (buffer-substring beg-pt (+ beg-pt 1)))))))
 
 (defun starhugger--add-suggestions-to-ring (suggestions state)
   (unless (ring-p starhugger--suggestion-ring)
@@ -447,7 +453,7 @@ Use for `starhugger-show-next-suggestion' and for auto mode."
                         nil
                         ;; allow inserting before the overlay
                         t t))
-    (starhugger--show-overlay suggt)))
+    (starhugger--show-overlay suggt pt)))
 
 ;;;###autoload
 (cl-defun starhugger-trigger-suggestion (&key force-new num spin)
@@ -534,6 +540,18 @@ ARGS. Note that BY should be `major-mode' dependant."
   "Insert N lines from the suggestion."
   (interactive "p")
   (starhugger--accept-suggestion-partially #'forward-paragraph (list n)))
+
+
+(defun starhugger-undo-accept-suggestion-partially ()
+  "Undo all partial acceptances and go back."
+  (interactive)
+  (-let* ((orig-point
+           (overlay-get starhugger--overlay 'starhugger-original-position))
+          (str (buffer-substring orig-point (point))))
+    (delete-char (- (length str)))
+    (starhugger--show-overlay
+     (concat str (starhugger--current-overlay-suggestion)))))
+
 
 (defun starhugger--get-prev-suggestion-index (delta suggestions)
   (-let* ((leng (length suggestions))
