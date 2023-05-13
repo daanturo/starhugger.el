@@ -1,6 +1,6 @@
 ;; -*- lexical-binding: t; -*-
 
-;; Version: 0.1.10
+;; Version: 0.1.11
 ;; Package-Requires: ((emacs "28.2") (compat "29.1.4.0") (dash "2.18.0") (spinner "1.7.4"))
 
 ;;; Commentary:
@@ -279,6 +279,7 @@ honor use_cache = false."
                                      `((max_new_tokens . ,starhugger-max-new-tokens)))
                               ,@+parameters ,@dynm-parameters))))
       (push request-buf starhugger--current-request-buffer-list)
+      (set-process-query-on-exit-flag (get-buffer-process request-buf) nil)
       request-buf)))
 
 ;;;###autoload
@@ -358,8 +359,9 @@ all of them are relevant all the time."
         (progn
           (starhugger--show-overlay (substring suggt 1)))
       (progn
-        ;; (starhugger-dismiss-suggestion)
-        ))))
+        ;; keep the suggestion, except when auto which is just annoying
+        (when starhugger-auto-mode
+          (starhugger-dismiss-suggestion))))))
 
 (defvar starhugger-active-suggestion-mode-hook '()
   nil)
@@ -499,6 +501,11 @@ will (re-)apply for all."
 
 ;;;###autoload
 (cl-defun starhugger-trigger-suggestion (&key force-new num spin)
+  "Show AI-powered code suggestions as overlays.
+NUM: number of suggestions to fetch at once (actually
+sequentially, the newly fetched ones are appended silently).
+FORCE-NEW: try to fetch different responses. SPIN: show the
+spinner while fetching."
   (interactive (list :force-new starhugger-active-suggestion-mode :spin t))
   (-let* ((buf (current-buffer))
           (pt0 (point))
@@ -527,9 +534,10 @@ will (re-)apply for all."
 (defun starhugger-dismiss-suggestion ()
   "Clear current suggestion and stop running requests."
   (interactive)
-  (dolist (request-buf starhugger--current-request-buffer-list)
-    (delete-process (get-buffer-process request-buf))
-    (kill-buffer request-buf))
+  (dlet ((kill-buffer-query-functions '()))
+    (dolist (request-buf starhugger--current-request-buffer-list)
+      (delete-process (get-buffer-process request-buf))
+      (kill-buffer request-buf)))
   (starhugger-active-suggestion-mode 0))
 
 (defcustom starhugger-trigger-suggestion-after-accepting t
@@ -629,16 +637,62 @@ Note that the number of suggestions are limited by
           (bufname (format "*%s %s*" 'starhugger-suggestions (buffer-name)))
           (suggestions*
            (-keep
-            (-lambda
-              (([pt] suggt))
+            (-lambda (([pt] suggt))
               (and (or all (= cur-pt pt))
                    (save-excursion
                      (goto-char pt)
                      (concat (buffer-substring (pos-bol) pt) suggt))))
             starhugger--suggestion-list)))
     (pop-to-buffer bufname)
+    (read-only-mode 0)
     (erase-buffer)
-    (insert (string-join suggestions* "\n\n\n\n"))))
+    (insert (string-join suggestions* "\n\n\n\n"))
+    (read-only-mode 1)))
+
+;;;; Auto-mode
+
+(defcustom starhugger-auto-idle-time 0.5
+  "Seconds to wait after typing, before fetching."
+  :group 'starhugger)
+
+(defvar-local starhugger--auto-timer nil)
+(defvar-local starhugger--last-buffer-size 0)
+
+;;;###autoload
+(defun starhugger--auto-trigger ()
+  (when (timerp starhugger--auto-timer)
+    (cancel-timer starhugger--auto-timer))
+  (run-with-idle-timer
+   starhugger-auto-idle-time
+   nil
+   #'starhugger-trigger-suggestion
+   :num starhugger-low-number-of-suggestions-to-fetch))
+
+;;;###autoload
+(defun starhugger--pre-command-h ()
+  (setq starhugger--last-buffer-size (buffer-size)))
+
+;;;###autoload
+(defun starhugger--post-command-h ()
+  "Clear suggestion when deleting."
+  (when (< (buffer-size) starhugger--last-buffer-size)
+    (starhugger-dismiss-suggestion)))
+
+;;;###autoload
+(progn
+  (define-minor-mode starhugger-auto-mode
+    "Automatic `starhugger-trigger-suggestion'."
+    :lighter " 💫"
+    :global nil
+    (if starhugger-auto-mode
+        (progn
+          (add-hook 'pre-command-hook 'starhugger--pre-command-h nil t)
+          (add-hook 'post-command-hook 'starhugger--post-command-h nil t)
+          (add-hook 'post-self-insert-hook #'starhugger--auto-trigger nil t))
+      (progn
+        (remove-hook 'pre-command-hook 'starhugger--pre-command-h t)
+        (remove-hook 'post-command-hook 'starhugger--post-command-h t)
+        (remove-hook 'post-self-insert-hook #'starhugger--auto-trigger t)))))
 
 ;;; starhugger.el ends here
 

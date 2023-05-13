@@ -72,4 +72,4 @@ This package is currently in a very turbulent state, expect breakages if you are
 
 - ✓ +"Unaccept" suggestion partially (by moving real text back to suggestion)+
 
-- ? Support for auto-completing when typing: investigate Emacs's built-in ~completion-at-point-functions~'s asynchronous capabilities, or another framework?
+- ½ +Support for auto-completing when typing: investigate Emacs's built-in ~completion-at-point-functions~'s asynchronous capabilities, or another framework?+
