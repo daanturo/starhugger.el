@@ -1,6 +1,6 @@
 ;; -*- lexical-binding: t; -*-
 
-;; Version: 0.1.6
+;; Version: 0.1.7
 ;; Package-Requires: ((emacs "28.2") (compat "29.1.4.0") (dash "2.18.0") (spinner "1.7.4"))
 
 ;;; Commentary:
@@ -52,8 +52,8 @@ Generate yours at https://huggingface.co/settings/tokens."
 
 (defcustom starhugger-max-prompt-length (* 1024 20)
   "Max length of the prompt to send.
-\"`inputs` tokens + `max_new_tokens` must be <= 8192\". This
-number was determined using trial and errors and is
+\"`inputs` tokens + `max_new_tokens` must be <= 8192\". The
+default value was determined using trial and errors and is
 model-dependant."
   :group 'starhugger)
 
@@ -75,7 +75,11 @@ model-dependant."
     (require 'spinner)
     (push '(starhugger . ["🤗" "⭐" "🌟" "🌠" "💫"]) spinner-types)
     (setq starhugger--spinner-added-type t))
-  (spinner-start 'starhugger 5))
+  (spinner-start 'starhugger 3))
+
+(defcustom starhugger-enable-spinner t
+  "Show spinner when fetching."
+  :group 'starhugger)
 
 ;; WHY isn't this documented?!
 (defvar url-http-end-of-headers)
@@ -87,10 +91,15 @@ model-dependant."
     (options)
     ;;
     )
-  "Detailed paramerlist list.
+  "Detailed parameter list.
 An association list to be converted by `json-serialize'. See
 https://huggingface.co/docs/api-inference/detailed_parameters#text-generation-task
 for parameters."
+  :group 'starhugger)
+
+(defcustom starhugger-max-new-tokens nil
+  "max_new_tokens when a number.
+See also `starhugger-additional-data-alist'."
   :group 'starhugger)
 
 (defun starhugger--json-serialize (object &rest args)
@@ -115,8 +124,8 @@ But prevent errors about multi-byte characters."
           (data
            (or data
                (starhugger--json-serialize
-                `((parameters ,@dynm-parameters ,@+parameters)
-                  (options ,@dynm-options ,@+options) (inputs . ,prompt*))))))
+                `((parameters ,@+parameters ,@dynm-parameters)
+                  (options ,@+options ,@dynm-options) (inputs . ,prompt*))))))
     (dlet ((url-request-method (or method "POST"))
            (url-request-data data)
            (url-request-extra-headers
@@ -240,7 +249,8 @@ honor use_cache = false."
 
 (cl-defun starhugger--query-internal (prompt callback &key display spin force-new &allow-other-keys)
   "Callback is called with the generated text list."
-  (-let* ((spin-obj (and spin (starhugger--spinner-start)))
+  (-let* ((spin-obj
+           (and spin starhugger-enable-spinner (starhugger--spinner-start)))
           ((&alist 'options +options 'parameters +parameters)
            (and force-new (starhugger--data-for-different-response))))
     (prog1 (starhugger--request
@@ -253,7 +263,9 @@ honor use_cache = false."
                 (when display
                   (starhugger--record-generated prompt gen-texts display))))
             :+options +options
-            :+parameters +parameters))))
+            :+parameters `(,@(and starhugger-max-new-tokens
+                                  `((max_new_tokens . ,starhugger-max-new-tokens)))
+                           ,@+parameters)))))
 
 ;;;###autoload
 (cl-defun starhugger-query (prompt &rest args &key beg-pos end-pos display force-new)
@@ -370,7 +382,7 @@ This doesn't trigger loading `starhugger.el'."
 (defvar-local starhugger--overlay nil)
 
 (defface starhugger-suggestion-face '((t :foreground "gray" :italic t))
-  "Face for suggestions."
+  "Face for suggestion overlays."
   :group 'starhugger)
 
 (defvar-local starhugger--suggestion-list '())
@@ -405,6 +417,19 @@ all of them are relevant all the time."
      (-lambda ((state suggt)) (and (or all (equal cur-state state)) suggt))
      (ring-elements starhugger--suggestion-ring))))
 
+(defcustom starhugger-high-number-of-suggestions-to-fetch 3
+  "The number of suggestions to fetch interactively at once.
+Allow quickly previewing to a different one. Use for commands
+such as `starhugger-trigger-suggestion'.
+
+Note that the model may return the same response repeatedly."
+  :group 'starhugger)
+
+(defcustom starhugger-low-number-of-suggestions-to-fetch 2
+  "The number of suggestions to fetch at once when automatically.
+Use for `starhugger-show-next-suggestion' and for auto mode."
+  :group 'starhugger)
+
 (defun starhugger--current-overlay-suggestion (&optional no-end-token)
   (-->
    (overlay-get starhugger--overlay 'starhugger-suggestion)
@@ -433,35 +458,53 @@ all of them are relevant all the time."
       (overlay-put starhugger--overlay
                    'display (concat suggt* (buffer-substring (point) (+ (point) 1)))))))
 
-(defun starhugger--init-overlay (suggt)
+(defun starhugger--add-suggestions-to-ring (suggestions state)
   (unless (ring-p starhugger--suggestion-ring)
     (setq starhugger--suggestion-ring
           (make-ring starhugger-suggestion-ring-size)))
-  (-let* ((state (starhugger--suggestion-state))
-          (elem (list state suggt)))
-    (unless (ring-member starhugger--suggestion-ring elem)
-      (ring-insert starhugger--suggestion-ring elem)))
-  (when (and starhugger--overlay (overlay-buffer starhugger--overlay))
-    (delete-overlay starhugger--overlay))
-  (setq starhugger--overlay
-        (make-overlay (point) (+ (point) 1)
-                      nil
-                      ;; allow inserting before the overlay
-                      t t))
-  (starhugger--show-overlay suggt)
-  (starhugger-active-suggestion-mode))
+  (dolist (suggt suggestions)
+    (-let* ((elem (list state suggt)))
+      (unless (ring-member starhugger--suggestion-ring elem)
+        (ring-insert starhugger--suggestion-ring elem)))))
+
+(defun starhugger--init-overlay (suggt &optional pt)
+  (-let* ((pt (or pt (point))))
+    (when (and starhugger--overlay (overlay-buffer starhugger--overlay))
+      (delete-overlay starhugger--overlay))
+    (setq starhugger--overlay
+          (make-overlay pt (+ pt 1)
+                        nil
+                        ;; allow inserting before the overlay
+                        t t))
+    (starhugger--show-overlay suggt)
+    (starhugger-active-suggestion-mode)))
 
 ;;;###autoload
-(defun starhugger-trigger-suggestion (&optional force-new)
+(defun starhugger-trigger-suggestion (&optional force-new times-to-fetch)
   (interactive (list starhugger-active-suggestion-mode))
-  (-let* ((buf (current-buffer)))
-    (starhugger--query-internal
-     (buffer-substring (point-min) (point))
-     (-lambda ((suggt . _))
-       (with-current-buffer buf
-         (starhugger--init-overlay suggt)))
-     :spin t
-     :force-new force-new)))
+  (-let* ((buf (current-buffer))
+          (pt0 (point))
+          (state (starhugger--suggestion-state))
+          (prompt (buffer-substring (point-min) (point))))
+    (letrec ((func
+              (lambda (fetch-time)
+                (starhugger--query-internal
+                 prompt
+                 (lambda (suggestions)
+                   (-let* ((suggt-1st (cl-first suggestions)))
+                     (with-current-buffer buf
+                       (starhugger--add-suggestions-to-ring suggestions state)
+                       (when (= 0 fetch-time)
+                         (starhugger--init-overlay suggt-1st pt0))
+                       (when (<
+                              fetch-time
+                              (or
+                               times-to-fetch
+                               starhugger-high-number-of-suggestions-to-fetch))
+                         (funcall func (+ fetch-time 1))))))
+                 :spin t
+                 :force-new (or force-new (< 0 fetch-time))))))
+      (funcall func 0))))
 
 (defun starhugger-dismiss-suggestion ()
   (interactive)
@@ -516,13 +559,14 @@ ARGS. Note that BY should be `major-mode' dependant."
     (starhugger--show-overlay suggt)))
 
 (defun starhugger-show-next-suggestion ()
-  "Show or fetch the next suggestion."
+  "Show or fetch the next suggestion(s)."
   (interactive)
   (-let* ((suggestions (starhugger--relevent-fetched-suggestions))
           (prev-idx (starhugger--get-prev-suggestion-index -1 suggestions))
           (suggt (elt suggestions prev-idx)))
     (if (zerop prev-idx)
-        (starhugger-trigger-suggestion t)
+        (starhugger-trigger-suggestion
+         t starhugger-low-number-of-suggestions-to-fetch)
       (starhugger--show-overlay suggt))))
 
 (defun starhugger-completing-read-from-got-suggestion-list (&optional all)

@@ -64,7 +64,7 @@ This package is currently in a very turbulent state, expect breakages if you are
 
 - ? TAB to complete more until "<|endoftext|>"
 
-- ? Let ~starhugger-trigger-suggestion~ fetch about 3 suggestions to quickly cycle
+- ✓ +Let ~starhugger-trigger-suggestion~ fetch about 3 suggestions to quickly cycle+
 
 - ? Fill-in-the-middle <FILL_HERE> support
 
