@@ -1,6 +1,6 @@
 ;; -*- lexical-binding: t; -*-
 
-;; Version: 0.1.7
+;; Version: 0.1.8
 ;; Package-Requires: ((emacs "28.2") (compat "29.1.4.0") (dash "2.18.0") (spinner "1.7.4"))
 
 ;;; Commentary:
@@ -27,7 +27,7 @@ Generate yours at https://huggingface.co/settings/tokens."
   "End point URL to make HTTP request."
   :group 'starhugger)
 
-;;;; Code completion
+;;;; Making requests
 
 (defun starhugger--get-all-generated-texts (str)
   (-let* ((parsed (json-parse-string str :object-type 'alist))
@@ -113,19 +113,17 @@ But prevent errors about multi-byte characters."
 (defvar starhugger-before-request-hook '()
   "Hook run before making an HTTP request.")
 
+(defvar-local starhugger--current-request-buffer-list '())
+
 (cl-defun starhugger--request (prompt callback &key data headers method +parameters +options)
   "CALLBACK's arguments: the response's content."
   (run-hooks 'starhugger-before-request-hook)
-  (-let* ((prompt*
-           (substring prompt
-                      (max 0 (- (length prompt) starhugger-max-prompt-length))))
-          ((&alist 'parameters dynm-parameters 'options dynm-options)
-           starhugger-additional-data-alist)
-          (data
+  (-let* ((data
            (or data
                (starhugger--json-serialize
-                `((parameters ,@+parameters ,@dynm-parameters)
-                  (options ,@+options ,@dynm-options) (inputs . ,prompt*))))))
+                `((parameters ,@+parameters)
+                  (options ,@+options)
+                  (inputs . ,prompt))))))
     (dlet ((url-request-method (or method "POST"))
            (url-request-data data)
            (url-request-extra-headers
@@ -140,16 +138,18 @@ But prevent errors about multi-byte characters."
        starhugger-model-api-endpoint-url
        (lambda (status)
          (-let* ((content
-                  (buffer-substring url-http-end-of-headers (point-max))))
+                  (and url-http-end-of-headers
+                       (buffer-substring url-http-end-of-headers (point-max)))))
            (setq starhugger--last-request
                  (list
                   :response-content content
                   :send-data data
                   :response-status status))
-           (when starhugger-debug
+           (when (or starhugger-debug (not url-http-end-of-headers))
              (starhugger--log
               starhugger--last-request
-              :header (buffer-substring (point-min) url-http-end-of-headers)))
+              :header (and url-http-end-of-headers
+                           (buffer-substring (point-min) url-http-end-of-headers))))
            (funcall callback content)))
        nil t))))
 
@@ -222,9 +222,9 @@ nil (if inserting happens)."
 To prevent key binding conflicts such as TAB."
   (completion-in-region-mode 0))
 
-(defvar starhugger-pre-insert-hook
+(defvar starhugger-post-insert-hook
   '(starhugger-turn-off-completion-in-region-mode)
-  "Hook run before inserting the parsed response.")
+  "Hook run after inserting the parsed response.")
 
 (defcustom starhugger-retry-temperature-range '(0.0 1.0)
   "The lower and upper bound of random temperature when retrying.
@@ -248,24 +248,40 @@ honor use_cache = false."
                     (--> (cl-random 1.0) (* it (- hi lo)) (+ lo it)))))))))))
 
 (cl-defun starhugger--query-internal (prompt callback &key display spin force-new &allow-other-keys)
-  "Callback is called with the generated text list."
-  (-let* ((spin-obj
+  "CALLBACK is called with the generated text list."
+  (-let* ((call-buf (current-buffer))
+          (spin-obj
            (and spin starhugger-enable-spinner (starhugger--spinner-start)))
           ((&alist 'options +options 'parameters +parameters)
-           (and force-new (starhugger--data-for-different-response))))
-    (prog1 (starhugger--request
-            prompt
-            (lambda (returned)
-              (when spin
-                (funcall spin-obj))
-              (-let* ((gen-texts (starhugger--get-all-generated-texts returned)))
-                (funcall callback gen-texts)
-                (when display
-                  (starhugger--record-generated prompt gen-texts display))))
-            :+options +options
-            :+parameters `(,@(and starhugger-max-new-tokens
-                                  `((max_new_tokens . ,starhugger-max-new-tokens)))
-                           ,@+parameters)))))
+           (and force-new (starhugger--data-for-different-response)))
+          ((&alist 'parameters dynm-parameters 'options dynm-options)
+           starhugger-additional-data-alist)
+          (prompt*
+           (substring prompt
+                      (max 0 (- (length prompt) starhugger-max-prompt-length)))))
+    (letrec ((request-buf
+              (starhugger--request
+               prompt*
+               (lambda (returned)
+                 (with-current-buffer call-buf
+                   (setq starhugger--current-request-buffer-list
+                         (delete
+                          request-buf starhugger--current-request-buffer-list)))
+                 (when spin
+                   (funcall spin-obj))
+                 (when returned
+                   (-let* ((gen-texts
+                            (starhugger--get-all-generated-texts returned)))
+                     (funcall callback gen-texts)
+                     (when display
+                       (starhugger--record-generated prompt* gen-texts
+                                                     display)))))
+               :+options `(,@+options ,@dynm-options)
+               :+parameters `(,@(and starhugger-max-new-tokens
+                                     `((max_new_tokens . ,starhugger-max-new-tokens)))
+                              ,@+parameters ,@dynm-parameters))))
+      (push request-buf starhugger--current-request-buffer-list)
+      request-buf)))
 
 ;;;###autoload
 (cl-defun starhugger-query (prompt &rest args &key beg-pos end-pos display force-new)
@@ -290,11 +306,11 @@ is optional arguments."
                   :display t
                   :force-new (equal starhugger-query--last-prompt prompt))))
   (-let* ((pt0 (or end-pos (point)))
-          (buf0 (current-buffer))
+          (call-buf (current-buffer))
           (modftick (buffer-modified-tick))
           (callback
            (lambda (gen-texts)
-             (with-current-buffer buf0
+             (with-current-buffer call-buf
                (setq starhugger-query--last-prompt prompt)
                (-let* ((pt1 (point))
                        (first-gen-text (cl-first gen-texts))
@@ -302,12 +318,12 @@ is optional arguments."
                         (and end-pos
                              (equal modftick (buffer-modified-tick))
                              (lambda ()
-                               (run-hooks 'starhugger-pre-insert-hook)
                                (starhugger--record-last-prompt-beg-pos beg-pos)
                                (insert
                                 (starhugger--post-process-content
                                  first-gen-text
-                                 (or end-pos display) prompt))))))
+                                 (or end-pos display) prompt))
+                               (run-hooks 'starhugger-post-insert-hook)))))
                  (when insert-action
                    (if (= pt0 pt1)
                        (progn
@@ -318,66 +334,7 @@ is optional arguments."
                        (funcall insert-action)))))))))
     (apply #'starhugger--query-internal prompt callback :spin t args)))
 
-(defun starhugger--complete-default-beg-position ()
-  (-->
-   (list
-    (bounds-of-thing-at-point 'line)
-    (bounds-of-thing-at-point 'paragraph)
-    (bounds-of-thing-at-point 'defun))
-   (-map #'car it)
-   (remove nil it)
-   (-min it)))
-
-;;;###autoload
-(defun starhugger-complete (&optional beginning)
-  "Insert completion using the prompt from BEGINNING to current point.
-BEGINNING defaults to start of current line, paragraph or defun,
-whichever is the furthest.
-
-Interactively, you may find `starhugger-complete*' performs
-better as it takes as much as `starhugger-max-prompt-length'
-allows, starting from buffer beginning."
-  (interactive)
-  (-let* ((beg (or beginning (starhugger--complete-default-beg-position)))
-          (prompt (buffer-substring-no-properties beg (point))))
-    (starhugger-query prompt :beg-pos beg :end-pos (point))))
-
-;;;###autoload
-(defun starhugger-complete* ()
-  "Insert completion, use as much text as possible before point as prompt.
-Just `starhugger-complete' under the hood."
-  (interactive)
-  (starhugger-complete (point-min)))
-
-(defun starhugger-complete-from-last-prompt ()
-  (interactive)
-  (starhugger-complete starhugger--last-prompt-beg-pos))
-
-;;;###autoload
-(defun starhugger--continue-complete-menu-item-filter (_)
-  (and starhugger--last-prompt-beg-pos #'starhugger-complete-from-last-prompt))
-
-;;;###autoload
-(progn
-  (define-minor-mode starhugger-global-mode
-    "Currently doesn't do very much.
-Beside enabling successive completions.
-This doesn't trigger loading `starhugger.el'."
-    :group 'starhugger
-    :global t
-    :keymap
-    (let* ((tab-item
-            `(menu-item "" nil
-              :filter starhugger--continue-complete-menu-item-filter)))
-      (list
-       (cons (kbd "TAB") tab-item) ;
-       (cons (kbd "<tab>") tab-item) ;
-       ))
-    (if starhugger-global-mode
-        (progn)
-      (progn))))
-
-;;;; Overlay suggestion UI
+;;;; Overlay suggestion
 
 (defvar-local starhugger--overlay nil)
 
@@ -419,7 +376,8 @@ all of them are relevant all the time."
         (add-hook 'post-self-insert-hook #'starhugger--post-self-insert-h nil t))
     (progn
       (remove-hook 'post-self-insert-hook #'starhugger--post-self-insert-h t)
-      (delete-overlay starhugger--overlay))))
+      (when (overlayp starhugger--overlay)
+        (delete-overlay starhugger--overlay)))))
 
 (defun starhugger--suggestion-state ()
   (vector (point) (thing-at-point 'line t)))
@@ -489,8 +447,7 @@ Use for `starhugger-show-next-suggestion' and for auto mode."
                         nil
                         ;; allow inserting before the overlay
                         t t))
-    (starhugger--show-overlay suggt)
-    (starhugger-active-suggestion-mode)))
+    (starhugger--show-overlay suggt)))
 
 ;;;###autoload
 (cl-defun starhugger-trigger-suggestion (&key force-new num spin)
@@ -499,6 +456,7 @@ Use for `starhugger-show-next-suggestion' and for auto mode."
           (pt0 (point))
           (state (starhugger--suggestion-state))
           (prompt (buffer-substring (point-min) (point))))
+    (starhugger-active-suggestion-mode)
     (letrec ((func
               (lambda (fetch-time)
                 (starhugger--query-internal
@@ -519,7 +477,11 @@ Use for `starhugger-show-next-suggestion' and for auto mode."
       (funcall func 0))))
 
 (defun starhugger-dismiss-suggestion ()
+  "Clear current suggestion and stop running requests."
   (interactive)
+  (dolist (request-buf starhugger--current-request-buffer-list)
+    (delete-process (get-buffer-process request-buf))
+    (kill-buffer request-buf))
   (starhugger-active-suggestion-mode 0))
 
 (defcustom starhugger-trigger-suggestion-after-accepting t
@@ -533,19 +495,23 @@ ARGS. Note that BY should be `major-mode' dependant."
   (goto-char (overlay-start starhugger--overlay))
   (-let* ((suggt (starhugger--current-overlay-suggestion))
           (suggt* (string-remove-suffix starhugger-end-token suggt))
-          (inserting
+          (text-to-insert
            (with-temp-buffer
              (insert suggt*)
              (goto-char (point-min))
              (apply by args)
              (buffer-substring (point-min) (point)))))
-    (insert inserting)
-    (if (equal suggt* inserting)
+    (insert text-to-insert)
+    (if (equal suggt* text-to-insert)
         (progn
           (starhugger-dismiss-suggestion)
           (and starhugger-trigger-suggestion-after-accepting
                (starhugger-trigger-suggestion :spin t)))
-      (starhugger--show-overlay (string-remove-prefix inserting suggt)))))
+      (starhugger--show-overlay (string-remove-prefix text-to-insert suggt)))
+    ;; maybe put parentheses balancer here?
+    (run-hooks 'starhugger-post-insert-hook)
+    text-to-insert))
+
 
 (defun starhugger-accept-suggestion ()
   "Insert the whole suggestion."
@@ -564,6 +530,10 @@ ARGS. Note that BY should be `major-mode' dependant."
   "Insert N lines from the suggestion."
   (interactive "p")
   (starhugger--accept-suggestion-partially #'forward-line (list n)))
+(defun starhugger-accept-suggestion-by-paragraph (n)
+  "Insert N lines from the suggestion."
+  (interactive "p")
+  (starhugger--accept-suggestion-partially #'forward-paragraph (list n)))
 
 (defun starhugger--get-prev-suggestion-index (delta suggestions)
   (-let* ((leng (length suggestions))

@@ -27,13 +27,9 @@ This package also requires those dependencies: [[https://github.com/emacs-compat
 
 * Usage
 
-** Primary commands
-
-- Direct completion: call ~M-x~ ~starhugger-complete~ or ~starhugger-complete*~ directly or bind them to your key(s) of choice. They will insert suggestion at point (turns out the overlay approach below is more useful, so maybe they will be deprecated).
-
-The first call usually doesn't return the completed code as expected, you can call the command successively, or enable ~(starhugger-global-mode)~ and press TAB to repeat.
-
 The performance may not be great, but they are asynchronous so Emacs won't be blocked.
+
+** Primary commands
 
 - Previewing overlay: ~starhugger-trigger-suggestion~ will show the suggestion.
 
@@ -66,12 +62,14 @@ This package is currently in a very turbulent state, expect breakages if you are
 
 - ✓ +Let ~starhugger-trigger-suggestion~ fetch about 3 suggestions to quickly cycle+
 
-- ? Fill-in-the-middle <FILL_HERE> support
+- ? Fill-in-the-middle <FILL_HERE> support ([[https://huggingface.co/spaces/bigcode/bigcode-playground]], not sure how to do ATM)
 
 - ✓ +Temporarily save the immediately previous suggestion list+
 
 - ? More robust and reliable method to show a different suggestion
 
 - ? Batch-previewing multiple suggestions, maybe with syntax highlighting
+
+- ? "Unaccept" suggestion partially (by moving real text back to suggestion)
 
 - ? Support for auto-completing when typing: investigate Emacs's built-in ~completion-at-point-functions~'s asynchronous capabilities, or another framework?

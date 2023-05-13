@@ -48,4 +48,10 @@ def query(payload):
 
 data = query(" ".join(sys.argv[1:]))
 
+# data = query(
+#     """#!/usr/bin/env python
+#     def fib<FILL_HERE>
+#         return a"""
+# )
+
 pprint(data)
