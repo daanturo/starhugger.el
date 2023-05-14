@@ -43,15 +43,10 @@ def query(payload):
     )
     pprint(data)
     response = requests.request("POST", API_URL, headers=headers, data=data)
-    return json.loads(response.content.decode("utf-8"))
+    parsed = json.loads(response.content.decode("utf-8"))
+    return parsed
 
 
-data = query(" ".join(sys.argv[1:]))
+# <fim_prefix>〈code before〉<fim_middle>〈code after〉<fim_suffix>
 
-# data = query(
-#     """#!/usr/bin/env python
-#     def fib<FILL_HERE>
-#         return a"""
-# )
-
-pprint(data)
+pprint(query(" ".join(sys.argv[1:])))

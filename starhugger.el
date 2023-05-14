@@ -1,6 +1,6 @@
 ;; -*- lexical-binding: t; -*-
 
-;; Version: 0.1.11
+;; Version: 0.1.12
 ;; Package-Requires: ((emacs "28.2") (compat "29.1.4.0") (dash "2.18.0") (spinner "1.7.4"))
 
 ;;; Commentary:
@@ -32,7 +32,7 @@ Generate yours at https://huggingface.co/settings/tokens."
           ((_ . err-msg) (and (listp parsed) (assoc 'error parsed))))
     (cond
      (err-msg
-      (user-error "%s" err-msg))
+      (user-error "`starhugger' response error: %s" err-msg))
      (t
       (-map (lambda (elem) (alist-get 'generated_text elem)) parsed)))))
 
@@ -48,11 +48,9 @@ Generate yours at https://huggingface.co/settings/tokens."
   "Whether to insert this time format before each entry in the log buffer."
   :group 'starhugger)
 
-(defcustom starhugger-max-prompt-length (* 1024 20)
+(defcustom starhugger-max-prompt-length (* 1024 8)
   "Max length of the prompt to send.
-\"`inputs` tokens + `max_new_tokens` must be <= 8192\". The
-default value was determined using trial and errors and is
-model-dependant."
+\"`inputs` tokens + `max_new_tokens` must be <= 8192\"."
   :group 'starhugger)
 
 (defun starhugger--log (&rest args)
@@ -71,7 +69,7 @@ model-dependant."
 (defun starhugger--spinner-start ()
   (unless starhugger--spinner-added-type
     (require 'spinner)
-    (push '(starhugger . ["🤗" "⭐" "🌟" "🌠" "💫"]) spinner-types)
+    (push '(starhugger . ["⭐" "🌟"]) spinner-types)
     (setq starhugger--spinner-added-type t))
   (spinner-start 'starhugger 3))
 
@@ -102,11 +100,17 @@ See also `starhugger-additional-data-alist'."
 
 (defun starhugger--json-serialize (object &rest args)
   "Like (`json-serialize' OBJECT @ARGS).
-But prevent errors about multi-byte characters."
+Additionally prevent errors about multi-byte characters."
   (encode-coding-string (apply #'json-serialize object args) 'utf-8))
 
 (defvar starhugger--last-request nil)
 (defvar starhugger-debug nil)
+
+(defun starhugger-toggle-debugging ()
+  "Activate some more verbose logging."
+  (interactive)
+  (setq starhugger-debug (not starhugger-debug))
+  (message "`starhugger-debug' := %s" starhugger-debug))
 
 (defvar starhugger-before-request-hook '()
   "Hook run before making an HTTP request.")
@@ -197,23 +201,6 @@ Enable this when the return_full_text parameter isn't honored."
              (string-remove-suffix starhugger-end-token it)
            it))
      it)))
-
-(defvar-local starhugger--last-prompt-beg-pos nil)
-
-(defun starhugger--record-last-prompt-beg-pos (pos)
-  "Save POS into `starhugger--last-prompt-beg-pos' locally.
-The said variable is used to continue completion from there to
-the point. Because only some certain keys are used for
-continuation, after the next command, set it back to nil (1).
-Since inserting is asynchronous, the time next command's
-insertion happen will happen after (1) so the variable won't stay
-nil (if inserting happens)."
-  (setq starhugger--last-prompt-beg-pos pos)
-  (letrec ((fn
-            (lambda ()
-              (setq starhugger--last-prompt-beg-pos nil)
-              (remove-hook 'post-command-hook fn t))))
-    (add-hook 'post-command-hook fn nil t)))
 
 (defun starhugger-turn-off-completion-in-region-mode ()
   "Use this when inserting parsed response.
@@ -317,7 +304,6 @@ is optional arguments."
                         (and end-pos
                              (equal modftick (buffer-modified-tick))
                              (lambda ()
-                               (starhugger--record-last-prompt-beg-pos beg-pos)
                                (insert
                                 (starhugger--post-process-content
                                  first-gen-text
@@ -343,7 +329,9 @@ is optional arguments."
 
 ;; We may as well use a ring (`make-ring'), but it doesn't have a built-in way
 ;; to modify elements in-place
-(defvar-local starhugger--suggestion-list '())
+(defvar-local starhugger--suggestion-list '()
+  "List of recently fetched suggestions along with internal state.
+Recent suggestions are added to the beginning.")
 
 (defcustom starhugger-suggestion-list-size 32
   "Maximum number of saved suggestions in current buffer.
@@ -351,39 +339,52 @@ Note that this includes all recently fetched suggestions so not
 all of them are relevant all the time."
   :group 'starhugger)
 
-(defun starhugger--post-self-insert-h ()
-  "Keep the overlay iff the typed character is its prefix."
-  (-let* ((suggt (starhugger--current-overlay-suggestion))
-          (suggt-char (elt suggt 0)))
-    (if (equal suggt-char last-command-event)
-        (progn
-          (starhugger--show-overlay (substring suggt 1)))
-      (progn
-        ;; keep the suggestion, except when auto which is just annoying
-        (when starhugger-auto-mode
-          (starhugger-dismiss-suggestion))))))
+(defvar-local starhugger--buffer-modify-tick nil)
 
-(defvar starhugger-active-suggestion-mode-hook '()
-  nil)
+(defun starhugger--set-buffer-modify-tick-h ()
+  "Record `starhugger--buffer-modify-tick'.
+To be compared in `post-command-hook'. TODO: ask (upstream?) for
+a way to compare changed `buffer-modified-tick' in
+`post-command-hook' rather than enforcing like this."
+  (setq starhugger--buffer-modify-tick (buffer-modified-tick)))
+(add-hook 'pre-command-hook 'starhugger--set-buffer-modify-tick-h)
+
+
+(defcustom starhugger-dismiss-suggestion-after-change t
+  "Whether to clear the overlay when text changes.
+And when no partially accepted suggestions."
+  :group 'starhugger)
+
+(defun starhugger-active-suggestion--post-command-h ()
+  (when (and starhugger-dismiss-suggestion-after-change
+             (not (equal starhugger--buffer-modify-tick (buffer-modified-tick)))
+             (not (starhugger--suggestion-accepted-partially)))
+    (starhugger-dismiss-suggestion)))
 
 (define-minor-mode starhugger-active-suggestion-mode
-  "Not meant to be called normally."
+  "Not meant to be called normally.
+When this minor mode is off, the overlay must not be shown."
   :global nil
-  :lighter " 🌟"
+  :lighter " 🌠"
   :keymap `( ;
             (,(kbd "<remap> <keyboard-quit>") . starhugger-dismiss-suggestion)
             ;;
             )
   (if starhugger-active-suggestion-mode
       (progn
-        (add-hook 'post-self-insert-hook #'starhugger--post-self-insert-h nil t))
+        (add-hook 'post-command-hook 'starhugger-active-suggestion--post-command-h nil t)
+        )
     (progn
-      (remove-hook 'post-self-insert-hook #'starhugger--post-self-insert-h t)
+      (remove-hook 'post-command-hook 'starhugger-active-suggestion--post-command-h t)
       (when (overlayp starhugger--overlay)
         (delete-overlay starhugger--overlay)))))
 
+(defun starhugger--ensure-active-suggestion-mode ()
+  (unless starhugger-active-suggestion-mode
+    (starhugger-active-suggestion-mode)))
+
 (defcustom starhugger-high-number-of-suggestions-to-fetch 3
-  "The number of suggestions to fetch interactively at once.
+  "The number of suggestions to fetch (sequentially) interactively.
 Allow quickly previewing to a different one. Use for commands
 such as `starhugger-trigger-suggestion'.
 
@@ -391,18 +392,21 @@ Note that the model may return the same response repeatedly."
   :group 'starhugger)
 
 (defcustom starhugger-low-number-of-suggestions-to-fetch 2
-  "The number of suggestions to fetch at once when automatically.
-Use for `starhugger-show-next-suggestion' and for auto mode."
+  "The number of suggestions to fetch (sequentially) when automatically."
   :group 'starhugger)
 
 (defun starhugger--current-overlay-suggestion (&optional no-end-token)
   (-->
-   (overlay-get starhugger--overlay 'starhugger-suggestion)
+   (overlay-get starhugger--overlay 'starhugger-current-suggestion)
    (if no-end-token
        (string-remove-suffix starhugger-end-token it)
      it)))
 
-(defun starhugger--show-overlay (suggt &optional orig-pt)
+(defun starhugger--update-overlay (suggt &optional orig-pt)
+  "Update overlay to displayer SUGGT after ORIG-PT.
+ORIG-PT defaults to current point, when supplying it with a
+non-nil (numeric) value, mark SUGGT and ORIG-PT as the original
+ones."
   (-let* ((beg-pt (or orig-pt (point)))
           (suggt*
            (propertize suggt
@@ -410,8 +414,9 @@ Use for `starhugger-show-next-suggestion' and for auto mode."
                        ;; allow placing the cursor before the overlay when
                        ;; 'before-string
                        'cursor t)))
-    (overlay-put starhugger--overlay 'starhugger-suggestion suggt)
+    (overlay-put starhugger--overlay 'starhugger-current-suggestion suggt)
     (when orig-pt
+      (overlay-put starhugger--overlay 'starhugger-original-suggestion suggt)
       (overlay-put starhugger--overlay 'starhugger-original-position orig-pt))
     ;; at end of buffer, 'display doesn't show anything because
     ;; `overlay-starr'=`overlay-end'
@@ -423,28 +428,50 @@ Use for `starhugger-show-next-suggestion' and for auto mode."
 
       ;; so the workaround is too concatenate "overlay" and "after" and and put
       ;; the overlay on "after"
-      (overlay-put starhugger--overlay 'display
-                   (concat suggt* (buffer-substring beg-pt (+ beg-pt 1)))))))
+      (overlay-put
+       starhugger--overlay
+       'display
+       (concat suggt* (buffer-substring beg-pt (+ beg-pt 1)))))))
 
-(defun starhugger--suggestion-state ()
-  (vector (point) (thing-at-point 'line t)))
+(defun starhugger--init-overlay (suggt pt)
+  (-let* ((beg pt)
+          (end (+ pt 1)))
+    ;; just deleting to clear other properties instead of moving is cleaner?
+    (when (and starhugger--overlay (overlay-buffer starhugger--overlay))
+      (delete-overlay starhugger--overlay))
+    (setq starhugger--overlay
+          (make-overlay pt (+ pt 1)
+                        nil
+                        ;; allow inserting before the overlay
+                        t t))
+    ;; (overlay-put starhugger--overlay 'modification-hooks #'starhugger--overlay-modification-h)
+    ;; (overlay-put starhugger--overlay 'insert-in-front-hooks #'starhugger--overlay-modification-h)
+    ;; (overlay-put starhugger--overlay 'insert-behind-hooks #'starhugger--overlay-modification-h)
+    (starhugger--update-overlay suggt pt)))
 
-(defun starhugger--relevant-fetched-suggestions (&optional all)
-  (-let* ((cur-state (starhugger--suggestion-state)))
+(defun starhugger--suggestion-state (&optional pt)
+  (if pt
+      (save-excursion
+        (goto-char pt)
+        (vector (point) (buffer-substring-no-properties (pos-bol) (pos-eol))))
+    (vector (point) (buffer-substring-no-properties (pos-bol) (pos-eol)))))
+
+(defun starhugger--relevant-fetched-suggestions (&optional all pt)
+  (-let* ((cur-state (starhugger--suggestion-state pt)))
     (-keep
      (-lambda ((state suggt)) (and (or all (equal cur-state state)) suggt))
      starhugger--suggestion-list)))
 
 (defun starhugger--add-to-suggestion-list (suggestions state)
   (dolist (suggt suggestions)
-    (-let* ((elem (list state suggt)))
-      (add-to-list 'starhugger--suggestion-list elem t)))
+    (when suggt
+      (-let* ((elem (list state suggt)))
+        (add-to-list 'starhugger--suggestion-list elem))))
   (-let* ((leng1 (length starhugger--suggestion-list)))
     (when (< starhugger-suggestion-list-size leng1)
       (setq starhugger--suggestion-list
-            (nthcdr
-             (- leng1 starhugger-suggestion-list-size)
-             starhugger--suggestion-list)))))
+            (ntake
+             starhugger-suggestion-list-size starhugger--suggestion-list)))))
 
 (defun starhugger--ensure-suggestion-list-syntax-highlighed (&optional force)
   "Ensure that fetched suggestions are syntax highlighted in current `major-mode'.
@@ -452,6 +479,7 @@ Normally only apply for unhighlighted suggestions, but FORCE
 will (re-)apply for all."
   (-let* ((mjmode major-mode)
           (suggt-list starhugger--suggestion-list)
+          ([cur-pt cur-inner-state] (starhugger--suggestion-state))
           (ptmin (point-min))
           ;; to minimize parsing, only try to take current top-level if possible
           ((fnbeg . fnend) (bounds-of-thing-at-point 'defun))
@@ -469,75 +497,94 @@ will (re-)apply for all."
                      (funcall mjmode))
                    (-map
                     (-lambda ((state suggt))
-                      (-->
-                       (cond
-                        ((and (not force) (object-intervals suggt))
-                         suggt)
-                        (t
-                         (erase-buffer)
-                         (insert bufstr)
-                         (-let* (([pt] state)
-                                 ;; adjust relative to top-level
-                                 (pt* (+ pt (- beg) ptmin)))
-                           (goto-char pt*)
-                           (insert suggt)
-                           (font-lock-ensure)
-                           (buffer-substring pt* (+ pt* (length suggt))))))
-                       (list state it)))
+                     (-->
+                      (cond
+                       ((and (not force) (object-intervals suggt))
+                        suggt)
+                       (t
+                        (-let* (([pt inner-state] state)
+                                ;; adjust relative to top-level
+                                (pt* (+ pt (- beg) ptmin)))
+                          ;; only try to fontify suggestions which are sensible
+                          ;; to put inside bufstr,
+                          (when (equal inner-state cur-inner-state)
+                            (erase-buffer)
+                            (insert bufstr)
+                            (goto-char pt*)
+                            (insert suggt)
+                            (font-lock-ensure)
+                            (buffer-substring pt* (+ pt* (length suggt)))))))
+                      (list state it)))
                     suggt-list))))
           (setq starhugger--suggestion-list fontified-lst))
       suggt-list)))
 
-(defun starhugger--init-overlay (suggt &optional pt)
-  (-let* ((pt (or pt (point))))
-    (when (and starhugger--overlay (overlay-buffer starhugger--overlay))
-      (delete-overlay starhugger--overlay))
-    (setq starhugger--overlay
-          (make-overlay pt (+ pt 1)
-                        nil
-                        ;; allow inserting before the overlay
-                        t t))
-    (starhugger--show-overlay suggt pt)))
+(defun starhugger--try-show-most-recent-suggestion ()
+  (-let* ((pt (point))
+          (cur-state (starhugger--suggestion-state))
+          (recent-suggt
+           (-some
+            (-lambda ((state suggt)) (and (equal cur-state state) suggt))
+            starhugger--suggestion-list)))
+    (starhugger--ensure-active-suggestion-mode)
+    (when recent-suggt
+      (when starhugger-debug
+        (starhugger--log
+         #'starhugger--try-show-most-recent-suggestion
+         "at"
+         pt
+         ":"
+         recent-suggt))
+      (starhugger--init-overlay recent-suggt pt))
+    recent-suggt))
 
 ;;;###autoload
-(cl-defun starhugger-trigger-suggestion (&key force-new num spin)
+(cl-defun starhugger-trigger-suggestion (&key interact force-new num)
   "Show AI-powered code suggestions as overlays.
 NUM: number of suggestions to fetch at once (actually
 sequentially, the newly fetched ones are appended silently).
-FORCE-NEW: try to fetch different responses. SPIN: show the
-spinner while fetching."
-  (interactive (list :force-new starhugger-active-suggestion-mode :spin t))
-  (-let* ((buf (current-buffer))
+FORCE-NEW: try to fetch different responses. Non-nil INTERACT:
+show spinner."
+  (interactive (list :interact t :force-new starhugger-active-suggestion-mode))
+  (-let* ((num (or num starhugger-high-number-of-suggestions-to-fetch))
+          (buf (current-buffer))
           (pt0 (point))
           (state (starhugger--suggestion-state))
-          (prompt (buffer-substring (point-min) (point))))
-    (starhugger-active-suggestion-mode)
+          (prompt (buffer-substring (point-min) (point)))
+          (modftick (buffer-modified-tick)))
+    (starhugger--ensure-active-suggestion-mode)
     (letrec ((func
               (lambda (fetch-time)
                 (starhugger--query-internal
                  prompt
                  (lambda (suggestions)
-                   (-let* ((suggt-1st (cl-first suggestions)))
-                     (with-current-buffer buf
+                   (with-current-buffer buf
+                     (-let* ((suggt-1st (cl-first suggestions)))
                        (starhugger--add-to-suggestion-list suggestions state)
-                       (when (= 0 fetch-time)
-                         (starhugger--init-overlay suggt-1st pt0))
-                       (when (< fetch-time
-                                (or
-                                 num
-                                 starhugger-high-number-of-suggestions-to-fetch))
-                         (funcall func (+ fetch-time 1))))))
-                 :spin spin
+                       (when (equal modftick (buffer-modified-tick))
+                         (when (= 0 fetch-time)
+                           (starhugger--init-overlay suggt-1st pt0))
+                         (when (< fetch-time num)
+                           (funcall func (+ fetch-time 1)))))))
+                 :spin (or starhugger-debug interact)
                  :force-new (or force-new (< 0 fetch-time))))))
       (funcall func 0))))
 
-(defun starhugger-dismiss-suggestion ()
-  "Clear current suggestion and stop running requests."
-  (interactive)
-  (dlet ((kill-buffer-query-functions '()))
-    (dolist (request-buf starhugger--current-request-buffer-list)
-      (delete-process (get-buffer-process request-buf))
-      (kill-buffer request-buf)))
+(defun starhugger--triggger-suggestion-prefer-cache ()
+  (or (starhugger--try-show-most-recent-suggestion)
+      (starhugger-trigger-suggestion
+       :num starhugger-low-number-of-suggestions-to-fetch)))
+
+(defun starhugger-dismiss-suggestion (&optional stop-fetching)
+  "Clear current suggestion and stop running requests.
+Non-nil STOP-FETCHING (interactively true by default): also kill
+unfinished fetches."
+  (interactive (list (not current-prefix-arg)))
+  (when stop-fetching
+    (dlet ((kill-buffer-query-functions '()))
+      (dolist (request-buf starhugger--current-request-buffer-list)
+        (delete-process (get-buffer-process request-buf))
+        (kill-buffer request-buf))))
   (starhugger-active-suggestion-mode 0))
 
 (defcustom starhugger-trigger-suggestion-after-accepting t
@@ -551,7 +598,10 @@ ARGS. Note that BY should be `major-mode' dependant."
   (-when-let* ((pos (overlay-start starhugger--overlay)))
     (goto-char pos)
     (-let* ((suggt (starhugger--current-overlay-suggestion))
-            (suggt* (string-remove-suffix starhugger-end-token suggt))
+            (suggt*
+             (if starhugger-strip-end-token
+                 (string-remove-suffix starhugger-end-token suggt)
+               suggt))
             (text-to-insert
              (with-temp-buffer
                (insert suggt*)
@@ -563,12 +613,18 @@ ARGS. Note that BY should be `major-mode' dependant."
           (progn
             (starhugger-dismiss-suggestion)
             (and starhugger-trigger-suggestion-after-accepting
-                 (starhugger-trigger-suggestion :spin t)))
-        (starhugger--show-overlay (string-remove-prefix text-to-insert suggt)))
+                 (starhugger-trigger-suggestion :interact t)))
+        (progn
+          (starhugger--update-overlay
+           (string-remove-prefix text-to-insert suggt))
+          (overlay-put starhugger--overlay 'starhugger-partially-accepted t)))
       ;; maybe put parentheses balancer here?
       (run-hooks 'starhugger-post-insert-hook)
       text-to-insert)))
 
+(defun starhugger--suggestion-accepted-partially ()
+  (and starhugger-active-suggestion-mode
+       (overlay-get starhugger--overlay 'starhugger-partially-accepted)))
 
 (defun starhugger-accept-suggestion ()
   "Insert the whole suggestion."
@@ -600,7 +656,8 @@ ARGS. Note that BY should be `major-mode' dependant."
            (overlay-get starhugger--overlay 'starhugger-original-position))
           (str (buffer-substring orig-point (point))))
     (delete-char (- (length str)))
-    (starhugger--show-overlay
+    (overlay-put starhugger--overlay 'starhugger-partially-accepted nil)
+    (starhugger--update-overlay
      (concat str (starhugger--current-overlay-suggestion)))))
 
 
@@ -609,20 +666,25 @@ ARGS. Note that BY should be `major-mode' dependant."
           (cur-idx
            (-elem-index (starhugger--current-overlay-suggestion) suggestions)))
     (-->
-     (- cur-idx delta)
+     ;; either `+': recent at first or `-': recent at last, depends of
+     ;; `starhugger--suggestion-list''s ordering
+     (+ cur-idx delta)
      ;; disable wrapping
      (min it (- leng 1)) (max it 0))))
 
 (defun starhugger-show-prev-suggestion (delta)
-  "Show the previous DELTA away suggestion."
+  "Show the previous suggestion.
+With prefix argument DELTA, show the suggestion that is DELTA away."
   (interactive "p")
-  (-let* ((suggestions (starhugger--relevant-fetched-suggestions))
+  (-let* ((pt (overlay-get starhugger--overlay 'starhugger-original-position))
+          (suggestions (starhugger--relevant-fetched-suggestions nil pt))
           (prev-idx (starhugger--get-prev-suggestion-index delta suggestions))
           (suggt (elt suggestions prev-idx)))
-    (starhugger--show-overlay suggt)))
+    (starhugger--update-overlay suggt pt)))
 
 (defun starhugger-show-next-suggestion (delta)
-  "Show the next DELTA away suggestion."
+  "Show the next suggestion.
+With prefix argument DELTA, show the suggestion that is DELTA away."
   (interactive "p")
   (starhugger-show-prev-suggestion (- delta)))
 
@@ -633,12 +695,13 @@ Note that the number of suggestions are limited by
 `starhugger-suggestion-list-size'."
   (interactive "P")
   (starhugger--ensure-suggestion-list-syntax-highlighed all)
-  (-let* ((cur-pt (point))
+  (-let* ((prompt-end-pt
+           (overlay-get starhugger--overlay 'starhugger-original-position))
           (bufname (format "*%s %s*" 'starhugger-suggestions (buffer-name)))
           (suggestions*
            (-keep
             (-lambda (([pt] suggt))
-              (and (or all (= cur-pt pt))
+              (and (or all (= prompt-end-pt pt))
                    (save-excursion
                      (goto-char pt)
                      (concat (buffer-substring (pos-bol) pt) suggt))))
@@ -656,27 +719,17 @@ Note that the number of suggestions are limited by
   :group 'starhugger)
 
 (defvar-local starhugger--auto-timer nil)
-(defvar-local starhugger--last-buffer-size 0)
 
 ;;;###autoload
-(defun starhugger--auto-trigger ()
+(defun starhugger-auto--post-command-h (&optional _beg _end _len)
   (when (timerp starhugger--auto-timer)
     (cancel-timer starhugger--auto-timer))
-  (run-with-idle-timer
-   starhugger-auto-idle-time
-   nil
-   #'starhugger-trigger-suggestion
-   :num starhugger-low-number-of-suggestions-to-fetch))
-
-;;;###autoload
-(defun starhugger--pre-command-h ()
-  (setq starhugger--last-buffer-size (buffer-size)))
-
-;;;###autoload
-(defun starhugger--post-command-h ()
-  "Clear suggestion when deleting."
-  (when (< (buffer-size) starhugger--last-buffer-size)
-    (starhugger-dismiss-suggestion)))
+  (when (and (not (equal starhugger--buffer-modify-tick (buffer-modified-tick)))
+             (not (starhugger--suggestion-accepted-partially)))
+    (run-with-idle-timer
+     starhugger-auto-idle-time
+     nil
+     #'starhugger--triggger-suggestion-prefer-cache)))
 
 ;;;###autoload
 (progn
@@ -686,13 +739,9 @@ Note that the number of suggestions are limited by
     :global nil
     (if starhugger-auto-mode
         (progn
-          (add-hook 'pre-command-hook 'starhugger--pre-command-h nil t)
-          (add-hook 'post-command-hook 'starhugger--post-command-h nil t)
-          (add-hook 'post-self-insert-hook #'starhugger--auto-trigger nil t))
+          (add-hook 'post-command-hook #'starhugger-auto--post-command-h nil t))
       (progn
-        (remove-hook 'pre-command-hook 'starhugger--pre-command-h t)
-        (remove-hook 'post-command-hook 'starhugger--post-command-h t)
-        (remove-hook 'post-self-insert-hook #'starhugger--auto-trigger t)))))
+        (remove-hook 'post-command-hook #'starhugger-auto--post-command-h t)))))
 
 ;;; starhugger.el ends here
 

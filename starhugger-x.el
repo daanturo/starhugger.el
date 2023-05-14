@@ -40,47 +40,6 @@ Just `starhugger-complete' under the hood."
   (interactive)
   (starhugger-complete (point-min)))
 
-(defun starhugger-complete-from-last-prompt ()
-  (interactive)
-  (starhugger-complete starhugger--last-prompt-beg-pos))
-
-;;;###autoload
-(defun starhugger--continue-complete-menu-item-filter (_)
-  (and starhugger--last-prompt-beg-pos #'starhugger-complete-from-last-prompt))
-
-;;;###autoload
-(progn
-  (define-minor-mode starhugger-global-mode
-    "Currently doesn't do very much.
-Beside enabling successive completions.
-This doesn't trigger loading `starhugger.el'."
-    :group 'starhugger
-    :global t
-    :keymap
-    (let* ((tab-item
-            `(menu-item "" nil
-              :filter starhugger--continue-complete-menu-item-filter)))
-      (list
-       (cons (kbd "TAB") tab-item) ;
-       (cons (kbd "<tab>") tab-item) ;
-       ))
-    (if starhugger-global-mode
-        (progn)
-      (progn))))
-
-(defun starhugger-completing-read-from-got-suggestion-list (&optional all)
-  (interactive "P")
-  (-let* ((cands (starhugger--relevant-fetched-suggestions all))
-          (accepted
-           (completing-read
-            "Suggestions: "
-            (lambda (string pred action)
-              (if (eq action 'metadata)
-                  `(metadata)
-                (complete-with-action action cands string pred))))))
-    (insert accepted)
-    (starhugger-dismiss-suggestion)))
-
 ;;; starhugger-x.el ends here
 
 (provide 'starhugger-x)

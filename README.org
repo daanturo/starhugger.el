@@ -62,7 +62,7 @@ This package is currently in a very turbulent state, expect breakages if you are
 
 - ✓ +Let ~starhugger-trigger-suggestion~ fetch about 3 suggestions to quickly cycle+
 
-- ? Fill-in-the-middle <FILL_HERE> support ([[https://huggingface.co/spaces/bigcode/bigcode-playground]], not sure how to do ATM)
+- ? Fill-in-the-middle support  [[https://github.com/huggingface/huggingface-vscode]]: <fim_prefix>〈code before〉<fim_middle>〈code after〉<fim_suffix>
 
 - ✓ +Temporarily save the immediately previous suggestion list+
 
@@ -70,6 +70,8 @@ This package is currently in a very turbulent state, expect breakages if you are
 
 - ½ /Batch-previewing multiple suggestions, maybe with syntax highlighting/
 
-- ✓ +"Unaccept" suggestion partially (by moving real text back to suggestion)+
+- ✓ +Unaccept suggestion partially (by moving real text back to suggestion)+
 
 - ½ +Support for auto-completing when typing: investigate Emacs's built-in ~completion-at-point-functions~'s asynchronous capabilities, or another framework?+
+
+- ? How about Transformers Agent [[https://huggingface.co/docs/transformers/transformers_agents]]?
