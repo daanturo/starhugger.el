@@ -232,7 +232,7 @@ honor use_cache = false."
                   (-let* (((lo hi) starhugger-retry-temperature-range))
                     (--> (cl-random 1.0) (* it (- hi lo)) (+ lo it)))))))))))
 
-(cl-defun starhugger--query-internal (prompt callback &key display spin force-new &allow-other-keys)
+(cl-defun starhugger--query-internal (prompt callback &rest args &key display spin force-new &allow-other-keys)
   "CALLBACK is called with the generated text list."
   (-let* ((call-buf (current-buffer))
           (spin-obj
@@ -266,8 +266,12 @@ honor use_cache = false."
                                      `((max_new_tokens . ,starhugger-max-new-tokens)))
                               ,@+parameters ,@dynm-parameters))))
       (push request-buf starhugger--current-request-buffer-list)
-      (set-process-query-on-exit-flag (get-buffer-process request-buf) nil)
-      request-buf)))
+      (-let* ((proc (get-buffer-process request-buf)))
+        (set-process-query-on-exit-flag proc nil)
+        (when starhugger-debug
+          (set-process-plist
+           proc `(:prompt ,prompt :args ,args ,@(process-plist proc))))
+        request-buf))))
 
 ;;;###autoload
 (cl-defun starhugger-query (prompt &rest args &key beg-pos end-pos display force-new)
@@ -339,25 +343,16 @@ Note that this includes all recently fetched suggestions so not
 all of them are relevant all the time."
   :group 'starhugger)
 
-(defvar-local starhugger--buffer-modify-tick nil)
-
-(defun starhugger--set-buffer-modify-tick-h ()
-  "Record `starhugger--buffer-modify-tick'.
-To be compared in `post-command-hook'. TODO: ask (upstream?) for
-a way to compare changed `buffer-modified-tick' in
-`post-command-hook' rather than enforcing like this."
-  (setq starhugger--buffer-modify-tick (buffer-modified-tick)))
-(add-hook 'pre-command-hook 'starhugger--set-buffer-modify-tick-h)
-
 
 (defcustom starhugger-dismiss-suggestion-after-change t
   "Whether to clear the overlay when text changes.
 And when no partially accepted suggestions."
   :group 'starhugger)
 
-(defun starhugger-active-suggestion--post-command-h ()
-  (when (and starhugger-dismiss-suggestion-after-change
-             (not (equal starhugger--buffer-modify-tick (buffer-modified-tick)))
+(defun starhugger-active-suggestion--after-change-h
+    (&optional _beg _end _old-len)
+  (when (and this-command
+             starhugger-dismiss-suggestion-after-change
              (not (starhugger--suggestion-accepted-partially)))
     (starhugger-dismiss-suggestion)))
 
@@ -372,10 +367,10 @@ When this minor mode is off, the overlay must not be shown."
             )
   (if starhugger-active-suggestion-mode
       (progn
-        (add-hook 'post-command-hook 'starhugger-active-suggestion--post-command-h nil t)
+        (add-hook 'after-change-functions 'starhugger-active-suggestion--after-change-h nil t)
         )
     (progn
-      (remove-hook 'post-command-hook 'starhugger-active-suggestion--post-command-h t)
+      (remove-hook 'after-change-functions 'starhugger-active-suggestion--after-change-h t)
       (when (overlayp starhugger--overlay)
         (delete-overlay starhugger--overlay)))))
 
@@ -721,15 +716,16 @@ Note that the number of suggestions are limited by
 (defvar-local starhugger--auto-timer nil)
 
 ;;;###autoload
-(defun starhugger-auto--post-command-h (&optional _beg _end _len)
-  (when (timerp starhugger--auto-timer)
-    (cancel-timer starhugger--auto-timer))
-  (when (and (not (equal starhugger--buffer-modify-tick (buffer-modified-tick)))
-             (not (starhugger--suggestion-accepted-partially)))
-    (run-with-idle-timer
-     starhugger-auto-idle-time
-     nil
-     #'starhugger--triggger-suggestion-prefer-cache)))
+(defun starhugger-auto--after-change-h (&optional _beg _end _len)
+  (when this-command
+    (when (timerp starhugger--auto-timer)
+      (cancel-timer starhugger--auto-timer))
+    (when (and (not (starhugger--suggestion-accepted-partially)))
+      (setq starhugger--auto-timer
+            (run-with-idle-timer
+             starhugger-auto-idle-time
+             nil
+             #'starhugger--triggger-suggestion-prefer-cache)))))
 
 ;;;###autoload
 (progn
@@ -739,9 +735,9 @@ Note that the number of suggestions are limited by
     :global nil
     (if starhugger-auto-mode
         (progn
-          (add-hook 'post-command-hook #'starhugger-auto--post-command-h nil t))
+          (add-hook 'after-change-functions #'starhugger-auto--after-change-h nil t))
       (progn
-        (remove-hook 'post-command-hook #'starhugger-auto--post-command-h t)))))
+        (remove-hook 'after-change-functions #'starhugger-auto--after-change-h t)))))
 
 ;;; starhugger.el ends here
 
