@@ -434,20 +434,15 @@ ones."
        (concat suggt* (buffer-substring beg-pt (+ beg-pt 1)))))))
 
 (defun starhugger--init-overlay (suggt pt)
-  (-let* ((beg pt)
-          (end (+ pt 1)))
-    ;; just deleting to clear other properties instead of moving is cleaner?
-    (when (and starhugger--overlay (overlay-buffer starhugger--overlay))
-      (delete-overlay starhugger--overlay))
-    (setq starhugger--overlay
-          (make-overlay pt (+ pt 1)
-                        nil
-                        ;; allow inserting before the overlay
-                        t t))
-    ;; (overlay-put starhugger--overlay 'modification-hooks #'starhugger--overlay-modification-h)
-    ;; (overlay-put starhugger--overlay 'insert-in-front-hooks #'starhugger--overlay-modification-h)
-    ;; (overlay-put starhugger--overlay 'insert-behind-hooks #'starhugger--overlay-modification-h)
-    (starhugger--update-overlay suggt pt)))
+  "Initialize over to show SUGGT and mark PT as the original position."
+  (when (and starhugger--overlay (overlay-buffer starhugger--overlay))
+    (delete-overlay starhugger--overlay))
+  (setq starhugger--overlay
+        (make-overlay pt (+ pt 1)
+                      nil
+                      ;; allow inserting before the overlay
+                      t t))
+  (starhugger--update-overlay suggt pt))
 
 (defun starhugger--suggestion-state (&optional pt)
   (if pt
@@ -478,43 +473,48 @@ ones."
 Normally only apply for unhighlighted suggestions, but FORCE
 will (re-)apply for all."
   (-let* ((mjmode major-mode)
-          (suggt-list starhugger--suggestion-list)
-          ([cur-pt cur-inner-state] (starhugger--suggestion-state))
-          (ptmin (point-min))
-          ;; to minimize parsing, only try to take current top-level if possible
-          ((fnbeg . fnend) (bounds-of-thing-at-point 'defun))
-          (beg (or fnbeg (point-min)))
-          (end (or fnend (point-max))))
+          (suggt-list starhugger--suggestion-list))
     (if (or force
             ;; some suggestions are not fontified?
             (-some
-             (-lambda ((_state str)) (null (object-intervals str)))
-             starhugger--suggestion-list))
-        (-let* ((bufstr (buffer-substring beg end))
+             (-lambda ((_state str)) (null (object-intervals str))) suggt-list))
+        (-let* ((strings-around-alist
+                 (save-excursion
+                   (-->
+                    suggt-list (-map (-lambda (([pt])) pt) it) (-uniq it)
+                    (-map
+                     (lambda (pt)
+                       (goto-char pt)
+                       (-let* (((toplv-beg . toplv-end)
+                                (bounds-of-thing-at-point 'defun)))
+                         (list
+                          pt
+                          (buffer-substring (or toplv-beg (point-min)) pt)
+                          (buffer-substring pt (or toplv-end (point-max))))))
+                     it))))
                 (fontified-lst
                  (with-temp-buffer
                    (delay-mode-hooks
                      (funcall mjmode))
                    (-map
                     (-lambda ((state suggt))
-                     (-->
-                      (cond
-                       ((and (not force) (object-intervals suggt))
-                        suggt)
-                       (t
-                        (-let* (([pt inner-state] state)
-                                ;; adjust relative to top-level
-                                (pt* (+ pt (- beg) ptmin)))
-                          ;; only try to fontify suggestions which are sensible
-                          ;; to put inside bufstr,
-                          (when (equal inner-state cur-inner-state)
-                            (erase-buffer)
-                            (insert bufstr)
-                            (goto-char pt*)
-                            (insert suggt)
-                            (font-lock-ensure)
-                            (buffer-substring pt* (+ pt* (length suggt)))))))
-                      (list state it)))
+                      (-let* ((fontified-str
+                               (cond
+                                ((and (not force) (object-intervals suggt))
+                                 suggt)
+                                (t
+                                 (-let* (([pt _] state)
+                                         ((pre suf)
+                                          (alist-get pt strings-around-alist)))
+                                   (erase-buffer)
+                                   (insert pre)
+                                   (-let* ((pt* (point)))
+                                     (insert suggt)
+                                     (insert suf)
+                                     (font-lock-ensure)
+                                     (buffer-substring
+                                      pt* (+ pt* (length suggt)))))))))
+                        (list state fontified-str)))
                     suggt-list))))
           (setq starhugger--suggestion-list fontified-lst))
       suggt-list)))
