@@ -1,1 +1,5 @@
 * Version 0.1.13
+
+- Introduce ~starhugger-suggestion-beg-map~.
+
+- Introduce ~starhugger-auto-dismiss-when-move-out~, enables by default.

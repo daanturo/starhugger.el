@@ -1,6 +1,6 @@
 ;; -*- lexical-binding: t; -*-
 
-;; Version: 0.1.12
+;; Version: 0.1.13
 ;; Package-Requires: ((emacs "28.2") (compat "29.1.4.0") (dash "2.18.0") (spinner "1.7.4"))
 
 ;;; Commentary:
@@ -106,8 +106,9 @@ Additionally prevent errors about multi-byte characters."
 (defvar starhugger--last-request nil)
 (defvar starhugger-debug nil)
 
+;;;###autoload
 (defun starhugger-toggle-debugging ()
-  "Activate some more verbose logging."
+  "More verbose logging (and maybe indicators)."
   (interactive)
   (setq starhugger-debug (not starhugger-debug))
   (message "`starhugger-debug' := %s" starhugger-debug))
@@ -392,10 +393,13 @@ Note that the model may return the same response repeatedly."
 
 (defun starhugger--current-overlay-suggestion (&optional no-end-token)
   (-->
-   (overlay-get starhugger--overlay 'starhugger-current-suggestion)
+   (overlay-get starhugger--overlay 'starhugger-ovlp-current-suggestion)
    (if no-end-token
        (string-remove-suffix starhugger-end-token it)
      it)))
+
+(defvar starhugger-suggestion-beg-map (make-sparse-keymap)
+  "Keymap used when at the beginning of suggestion overlay.")
 
 (defun starhugger--update-overlay (suggt &optional orig-pt)
   "Update overlay to displayer SUGGT after ORIG-PT.
@@ -409,24 +413,30 @@ ones."
                        ;; allow placing the cursor before the overlay when
                        ;; 'before-string
                        'cursor t)))
-    (overlay-put starhugger--overlay 'starhugger-current-suggestion suggt)
+    (overlay-put starhugger--overlay 'starhugger-ovlp-current-suggestion suggt)
     (when orig-pt
-      (overlay-put starhugger--overlay 'starhugger-original-suggestion suggt)
-      (overlay-put starhugger--overlay 'starhugger-original-position orig-pt))
+      (overlay-put
+       starhugger--overlay 'starhugger-ovlp-original-suggestion suggt)
+      (overlay-put
+       starhugger--overlay 'starhugger-ovlp-original-position orig-pt))
     ;; at end of buffer, 'display doesn't show anything because
     ;; `overlay-starr'=`overlay-end'
     (if (eobp)
-        (overlay-put starhugger--overlay 'before-string suggt*)
+        (progn
+          (overlay-put starhugger--overlay 'display nil)
+          (overlay-put starhugger--overlay 'before-string suggt*))
       ;; currently I can't find a way to to achieve this:
 
       ;; 〈before〉|〈overlay〉〈after〉
 
       ;; so the workaround is too concatenate "overlay" and "after" and and put
       ;; the overlay on "after"
-      (overlay-put
-       starhugger--overlay
-       'display
-       (concat suggt* (buffer-substring beg-pt (+ beg-pt 1)))))))
+      (progn
+        (overlay-put starhugger--overlay 'before-string nil)
+        (overlay-put
+         starhugger--overlay
+         'display
+         (concat suggt* (buffer-substring beg-pt (+ beg-pt 1))))))))
 
 (defun starhugger--init-overlay (suggt pt)
   "Initialize over to show SUGGT and mark PT as the original position."
@@ -437,6 +447,7 @@ ones."
                       nil
                       ;; allow inserting before the overlay
                       t t))
+  (overlay-put starhugger--overlay 'keymap starhugger-suggestion-beg-map)
   (starhugger--update-overlay suggt pt))
 
 (defun starhugger--suggestion-state (&optional pt)
@@ -604,7 +615,6 @@ ARGS. Note that BY should be `major-mode' dependant."
                (goto-char (point-min))
                (apply by args)
                (buffer-substring (point-min) (point)))))
-      (insert text-to-insert)
       (if (equal suggt* text-to-insert)
           (progn
             (starhugger-dismiss-suggestion)
@@ -613,14 +623,18 @@ ARGS. Note that BY should be `major-mode' dependant."
         (progn
           (starhugger--update-overlay
            (string-remove-prefix text-to-insert suggt))
-          (overlay-put starhugger--overlay 'starhugger-partially-accepted t)))
+          (overlay-put
+           starhugger--overlay 'starhugger-ovlp-partially-accepted t)))
+      ;; insert after marking as partially-accepted
+      (insert text-to-insert)
       ;; maybe put parentheses balancer here?
       (run-hooks 'starhugger-post-insert-hook)
       text-to-insert)))
 
 (defun starhugger--suggestion-accepted-partially ()
   (and starhugger-active-suggestion-mode
-       (overlay-get starhugger--overlay 'starhugger-partially-accepted)))
+       (overlayp starhugger--overlay)
+       (overlay-get starhugger--overlay 'starhugger-ovlp-partially-accepted)))
 
 (defun starhugger-accept-suggestion ()
   "Insert the whole suggestion."
@@ -649,10 +663,10 @@ ARGS. Note that BY should be `major-mode' dependant."
   "Undo all partial acceptances and go back."
   (interactive)
   (-let* ((orig-point
-           (overlay-get starhugger--overlay 'starhugger-original-position))
+           (overlay-get starhugger--overlay 'starhugger-ovlp-original-position))
           (str (buffer-substring orig-point (point))))
     (delete-char (- (length str)))
-    (overlay-put starhugger--overlay 'starhugger-partially-accepted nil)
+    (overlay-put starhugger--overlay 'starhugger-ovlp-partially-accepted nil)
     (starhugger--update-overlay
      (concat str (starhugger--current-overlay-suggestion)))))
 
@@ -672,7 +686,7 @@ ARGS. Note that BY should be `major-mode' dependant."
   "Show the previous suggestion.
 With prefix argument DELTA, show the suggestion that is DELTA away."
   (interactive "p")
-  (-let* ((pt (overlay-get starhugger--overlay 'starhugger-original-position))
+  (-let* ((pt (overlay-get starhugger--overlay 'starhugger-ovlp-original-position))
           (suggestions (starhugger--relevant-fetched-suggestions nil pt))
           (prev-idx (starhugger--get-prev-suggestion-index delta suggestions))
           (suggt (elt suggestions prev-idx)))
@@ -692,7 +706,7 @@ Note that the number of suggestions are limited by
   (interactive "P")
   (starhugger--ensure-suggestion-list-syntax-highlighed all)
   (-let* ((prompt-end-pt
-           (overlay-get starhugger--overlay 'starhugger-original-position))
+           (overlay-get starhugger--overlay 'starhugger-ovlp-original-position))
           (bufname (format "*%s %s*" 'starhugger-suggestions (buffer-name)))
           (suggestions*
            (-keep
@@ -711,7 +725,14 @@ Note that the number of suggestions are limited by
 ;;;; Auto-mode
 
 (defcustom starhugger-auto-idle-time 0.5
-  "Seconds to wait after typing, before fetching."
+  "Seconds to wait after typing, before fetching.
+Note that the time taken to fetch isn' instantaneous, so we have
+to wait more after this unless the suggestion(s) is already
+cached, for the suggestion to appear."
+  :group 'starhugger)
+
+(defcustom starhugger-auto-dismiss-when-move-out t
+  "Whether to dismiss suggestion when moving point outside."
   :group 'starhugger)
 
 (defvar-local starhugger--auto-timer nil)
@@ -729,16 +750,34 @@ Note that the number of suggestions are limited by
                                  (current-buffer))))))
 
 ;;;###autoload
+(defun starhugger-auto--post-command-h ()
+  (when (and starhugger--overlay
+             starhugger-active-suggestion-mode
+             starhugger-auto-dismiss-when-move-out)
+    (-let* ((beg
+             (overlay-get
+              starhugger--overlay 'starhugger-ovlp-original-position))
+            (end (overlay-end starhugger--overlay)))
+      (unless (<= beg (point) end)
+        (starhugger-dismiss-suggestion)))))
+
+;;;###autoload
 (progn
+
   (define-minor-mode starhugger-auto-mode
     "Automatic `starhugger-trigger-suggestion'."
     :lighter " 💫"
     :global nil
     (if starhugger-auto-mode
         (progn
+          (add-hook 'post-command-hook #'starhugger-auto--post-command-h nil t)
           (add-hook 'after-change-functions #'starhugger-auto--after-change-h nil t))
       (progn
-        (remove-hook 'after-change-functions #'starhugger-auto--after-change-h t)))))
+        (remove-hook 'post-command-hook #'starhugger-auto--post-command-h t)
+        (remove-hook 'after-change-functions #'starhugger-auto--after-change-h t))))
+
+  ;;
+  )
 
 ;;; starhugger.el ends here
 
