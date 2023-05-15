@@ -1,3 +1,7 @@
+* Version 0.1.14
+
+- Rename ~starhugger-end-token~ -> ~starhugger-stop-token~, ~starhugger-strip-end-token~ -> ~starhugger-chop-stop-token~; like [[https://github.com/huggingface/huggingface-vscode]]
+
 * Version 0.1.13
 
 - Introduce ~starhugger-suggestion-beg-map~.

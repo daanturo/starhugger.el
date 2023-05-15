@@ -1,6 +1,6 @@
 ;; -*- lexical-binding: t; -*-
 
-;; Version: 0.1.13
+;; Version: 0.1.14
 ;; Package-Requires: ((emacs "28.2") (compat "29.1.4.0") (dash "2.18.0") (spinner "1.7.4"))
 
 ;;; Commentary:
@@ -177,12 +177,12 @@ Additionally prevent errors about multi-byte characters."
 Enable this when the return_full_text parameter isn't honored."
   :group 'starhugger)
 
-(defcustom starhugger-end-token "<|endoftext|>"
+(defcustom starhugger-stop-token "<|endoftext|>"
   "End of sentence token."
   :group 'starhugger)
 
-(defcustom starhugger-strip-end-token t
-  "Whether to remove `starhugger-end-token' before inserting."
+(defcustom starhugger-chop-stop-token t
+  "Whether to remove `starhugger-stop-token' before inserting."
   :group 'starhugger)
 
 (defun starhugger--post-process-content
@@ -192,14 +192,14 @@ Enable this when the return_full_text parameter isn't honored."
    (if starhugger-strip-prompt-before-insert
        (string-remove-prefix prompt it)
      it)
-   (if starhugger-strip-end-token
-       (-let* ((end-flag (string-suffix-p starhugger-end-token it)))
+   (if starhugger-chop-stop-token
+       (-let* ((end-flag (string-suffix-p starhugger-stop-token it)))
          (when (and end-flag notify-end)
            (message "%s received from %s !"
-                    starhugger-end-token
+                    starhugger-stop-token
                     starhugger-model-api-endpoint-url))
          (if end-flag
-             (string-remove-suffix starhugger-end-token it)
+             (string-remove-suffix starhugger-stop-token it)
            it))
      it)))
 
@@ -391,11 +391,11 @@ Note that the model may return the same response repeatedly."
   "The number of suggestions to fetch (sequentially) when automatically."
   :group 'starhugger)
 
-(defun starhugger--current-overlay-suggestion (&optional no-end-token)
+(defun starhugger--current-overlay-suggestion (&optional chop-stop-token)
   (-->
    (overlay-get starhugger--overlay 'starhugger-ovlp-current-suggestion)
-   (if no-end-token
-       (string-remove-suffix starhugger-end-token it)
+   (if chop-stop-token
+       (string-remove-suffix starhugger-stop-token it)
      it)))
 
 (defvar starhugger-suggestion-beg-map (make-sparse-keymap)
@@ -606,8 +606,8 @@ ARGS. Note that BY should be `major-mode' dependant."
     (goto-char pos)
     (-let* ((suggt (starhugger--current-overlay-suggestion))
             (suggt*
-             (if starhugger-strip-end-token
-                 (string-remove-suffix starhugger-end-token suggt)
+             (if starhugger-chop-stop-token
+                 (string-remove-suffix starhugger-stop-token suggt)
                suggt))
             (text-to-insert
              (with-temp-buffer
