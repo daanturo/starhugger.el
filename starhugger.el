@@ -15,6 +15,8 @@
 (require 'dash)
 (require 'compat)
 
+;;;; Making requests
+
 (defcustom starhugger-api-token nil
   "Hugging Face user access tokens.
 Generate yours at https://huggingface.co/settings/tokens."
@@ -24,8 +26,6 @@ Generate yours at https://huggingface.co/settings/tokens."
   "https://api-inference.huggingface.co/models/bigcode/starcoder"
   "End point URL to make HTTP request."
   :group 'starhugger)
-
-;;;; Making requests
 
 (defun starhugger--get-all-generated-texts (str)
   (-let* ((parsed (json-parse-string str :object-type 'alist))
@@ -565,10 +565,11 @@ show spinner."
                  :force-new (or force-new (< 0 fetch-time))))))
       (funcall func 0))))
 
-(defun starhugger--triggger-suggestion-prefer-cache ()
-  (or (starhugger--try-show-most-recent-suggestion)
-      (starhugger-trigger-suggestion
-       :num starhugger-low-number-of-suggestions-to-fetch)))
+(defun starhugger--triggger-suggestion-prefer-cache (in-buffer)
+  (when (equal in-buffer (current-buffer))
+    (or (starhugger--try-show-most-recent-suggestion)
+        (starhugger-trigger-suggestion
+         :num starhugger-low-number-of-suggestions-to-fetch))))
 
 (defun starhugger-dismiss-suggestion (&optional stop-fetching)
   "Clear current suggestion and stop running requests.
@@ -722,10 +723,10 @@ Note that the number of suggestions are limited by
       (cancel-timer starhugger--auto-timer))
     (when (and (not (starhugger--suggestion-accepted-partially)))
       (setq starhugger--auto-timer
-            (run-with-idle-timer
-             starhugger-auto-idle-time
-             nil
-             #'starhugger--triggger-suggestion-prefer-cache)))))
+            (run-with-idle-timer starhugger-auto-idle-time
+                                 nil
+                                 #'starhugger--triggger-suggestion-prefer-cache
+                                 (current-buffer))))))
 
 ;;;###autoload
 (progn
