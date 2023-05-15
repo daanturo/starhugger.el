@@ -1,6 +1,6 @@
 ;; -*- lexical-binding: t; -*-
 
-;; Version: 0.1.14
+;; Version: 0.1.15
 ;; Package-Requires: ((emacs "28.2") (compat "29.1.4.0") (dash "2.18.0") (spinner "1.7.4"))
 
 ;;; Commentary:
@@ -107,10 +107,20 @@ See also `starhugger-additional-data-alist'."
   :group 'starhugger
   :type 'sexp)
 
+(defcustom starhugger-hexify-request-data nil
+  "Whether to hexify string before making request and unhex when receiving.
+Warning: this will increase the token count by a significant magnitude!"
+  :group 'starhugger
+  :type 'sexp)
+
 (defun starhugger--json-serialize (object &rest args)
   "Like (`json-serialize' OBJECT @ARGS).
 Additionally prevent errors about multi-byte characters."
-  (encode-coding-string (apply #'json-serialize object args) 'utf-8))
+  (-->
+   object (apply #'json-serialize it args)
+   (if starhugger-hexify-request-data
+       it
+     (encode-coding-string it 'utf-8))))
 
 (defvar starhugger--last-request nil)
 (defvar starhugger-debug nil)
@@ -135,7 +145,10 @@ Additionally prevent errors about multi-byte characters."
                (starhugger--json-serialize
                 `((parameters ,@+parameters)
                   (options ,@+options)
-                  (inputs . ,prompt))))))
+                  (inputs .
+                          ,(if starhugger-hexify-request-data
+                               (url-hexify-string prompt)
+                             prompt)))))))
     (dlet ((url-request-method (or method "POST"))
            (url-request-data data)
            (url-request-extra-headers
@@ -151,7 +164,11 @@ Additionally prevent errors about multi-byte characters."
        (lambda (status)
          (-let* ((content
                   (and url-http-end-of-headers
-                       (buffer-substring url-http-end-of-headers (point-max)))))
+                       (-->
+                        (buffer-substring url-http-end-of-headers (point-max))
+                        (if starhugger-hexify-request-data
+                            (decode-coding-string (url-unhex-string it) 'utf-8)
+                          it)))))
            (setq starhugger--last-request
                  (list
                   :response-content content
@@ -199,13 +216,17 @@ Enable this when the return_full_text parameter isn't honored."
 
 (defcustom starhugger-fill-tokens
   '("<fim_prefix>" "<fim_suffix>" "<fim_middle>")
-  "A list 3 token to use for `starhugger-fill-in-the-middle'."
+  "A list 3 token to use for `starhugger-fill-in-the-middle'.
+See
+https://github.com/huggingface/huggingface-vscode/blob/73818334f4939c2f19480a404f74944a47933a12/src/runCompletion.ts#L66"
   :group 'starhugger
   :type 'sexp)
 
 (defcustom starhugger-fill-in-the-middle t
   "Enable using code from both before and after point as prompt.
-https://github.com/huggingface/huggingface-vscode/blob/73818334f4939c2f19480a404f74944a47933a12/src/runCompletion.ts#L66"
+Unless just before the buffer end's trailing newlines (if any),
+in that case don't use fill mode. See `starhugger-fill-tokens'
+for the relevant tokens."
   :group 'starhugger
   :type 'sexp)
 
@@ -272,9 +293,7 @@ honor use_cache = false."
            (and force-new (starhugger--data-for-different-response)))
           ((&alist 'parameters dynm-parameters 'options dynm-options)
            starhugger-additional-data-alist)
-          (prompt*
-           (substring prompt
-                      (max 0 (- (length prompt) starhugger-max-prompt-length)))))
+          (prompt* prompt))
     (letrec ((request-buf
               (starhugger--request
                prompt*
@@ -578,8 +597,28 @@ will (re-)apply for all."
       (starhugger--init-overlay recent-suggt pt))
     recent-suggt))
 
-;; TODO: implement this
-(defun starhugger--prompt ())
+(defun starhugger--prompt ()
+  "Build the prompt to send to the model."
+  (-let* ((pt (point)))
+    (if (and starhugger-fill-in-the-middle
+             ;; don't use fill mode when at trailing newlines
+             (not (looking-at-p "\n*\\'")))
+        (-let* (((pre-token mid-token suf-token) starhugger-fill-tokens)
+                ;; TODO: when code before is shorter than code after, in that
+                ;; case prioritize the latter instead
+                (max-suf-len
+                 (floor
+                  (* starhugger-max-prompt-length
+                     starhugger-prompt-after-point-fraction)))
+                (suf-len (min (- (point-max) pt) max-suf-len))
+                (pre-len
+                 (min (- pt (point-min))
+                      (- starhugger-max-prompt-length suf-len)))
+                (suf-str (buffer-substring-no-properties pt (+ pt suf-len)))
+                (pre-str (buffer-substring-no-properties (- pt pre-len) pt)))
+          (concat pre-token pre-str mid-token suf-str suf-token))
+      (buffer-substring-no-properties
+       (max (- pt starhugger-max-prompt-length) (point-min)) pt))))
 
 ;;;###autoload
 (cl-defun starhugger-trigger-suggestion (&key interact force-new num)
@@ -593,7 +632,7 @@ show spinner."
           (buf (current-buffer))
           (pt0 (point))
           (state (starhugger--suggestion-state))
-          (prompt (buffer-substring (point-min) (point)))
+          (prompt (starhugger--prompt))
           (modftick (buffer-modified-tick)))
     (starhugger--ensure-active-suggestion-mode)
     (letrec ((func
