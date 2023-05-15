@@ -20,12 +20,14 @@
 (defcustom starhugger-api-token nil
   "Hugging Face user access tokens.
 Generate yours at https://huggingface.co/settings/tokens."
-  :group 'starhugger)
+  :group 'starhugger
+  :type 'sexp)
 
 (defcustom starhugger-model-api-endpoint-url
   "https://api-inference.huggingface.co/models/bigcode/starcoder"
   "End point URL to make HTTP request."
-  :group 'starhugger)
+  :group 'starhugger
+  :type 'sexp)
 
 (defun starhugger--get-all-generated-texts (str)
   (-let* ((parsed (json-parse-string str :object-type 'alist))
@@ -38,20 +40,24 @@ Generate yours at https://huggingface.co/settings/tokens."
 
 (defcustom starhugger-generated-buffer (format "*%s*" 'starhugger)
   "Buffer name to log parsed responses."
-  :group 'starhugger)
+  :group 'starhugger
+  :type 'sexp)
 
 (defcustom starhugger-log-buffer (format " *%s-log*" 'starhugger)
   "Buffer name to log things, hidden by default."
-  :group 'starhugger)
+  :group 'starhugger
+  :type 'sexp)
 
 (defcustom starhugger-log-time "(%F %T) "
   "Whether to insert this time format before each entry in the log buffer."
-  :group 'starhugger)
+  :group 'starhugger
+  :type 'sexp)
 
 (defcustom starhugger-max-prompt-length (* 1024 8)
   "Max length of the prompt to send.
 \"`inputs` tokens + `max_new_tokens` must be <= 8192\"."
-  :group 'starhugger)
+  :group 'starhugger
+  :type 'sexp)
 
 (defun starhugger--log (&rest args)
   (with-current-buffer (get-buffer-create starhugger-log-buffer)
@@ -75,7 +81,8 @@ Generate yours at https://huggingface.co/settings/tokens."
 
 (defcustom starhugger-enable-spinner t
   "Show spinner when fetching."
-  :group 'starhugger)
+  :group 'starhugger
+  :type 'sexp)
 
 ;; WHY isn't this documented?!
 (defvar url-http-end-of-headers)
@@ -91,12 +98,14 @@ Generate yours at https://huggingface.co/settings/tokens."
 An association list to be converted by `json-serialize'. See
 https://huggingface.co/docs/api-inference/detailed_parameters#text-generation-task
 for parameters."
-  :group 'starhugger)
+  :group 'starhugger
+  :type 'sexp)
 
 (defcustom starhugger-max-new-tokens nil
-  "max_new_tokens when a number.
+  "When a number, set it to max_new_tokens.
 See also `starhugger-additional-data-alist'."
-  :group 'starhugger)
+  :group 'starhugger
+  :type 'sexp)
 
 (defun starhugger--json-serialize (object &rest args)
   "Like (`json-serialize' OBJECT @ARGS).
@@ -175,15 +184,35 @@ Additionally prevent errors about multi-byte characters."
 (defcustom starhugger-strip-prompt-before-insert nil
   "Whether to remove the prompt in the parsed response before inserting.
 Enable this when the return_full_text parameter isn't honored."
-  :group 'starhugger)
+  :group 'starhugger
+  :type 'sexp)
 
 (defcustom starhugger-stop-token "<|endoftext|>"
   "End of sentence token."
-  :group 'starhugger)
+  :group 'starhugger
+  :type 'sexp)
 
 (defcustom starhugger-chop-stop-token t
   "Whether to remove `starhugger-stop-token' before inserting."
-  :group 'starhugger)
+  :group 'starhugger
+  :type 'sexp)
+
+(defcustom starhugger-fill-tokens
+  '("<fim_prefix>" "<fim_suffix>" "<fim_middle>")
+  "A list 3 token to use for `starhugger-fill-in-the-middle'."
+  :group 'starhugger
+  :type 'sexp)
+
+(defcustom starhugger-fill-in-the-middle t
+  "Enable using code from both before and after point as prompt.
+https://github.com/huggingface/huggingface-vscode/blob/73818334f4939c2f19480a404f74944a47933a12/src/runCompletion.ts#L66"
+  :group 'starhugger
+  :type 'sexp)
+
+(defcustom starhugger-prompt-after-point-fraction (/ 1.0 4)
+  "The length fraction that code after point should take in the prompt."
+  :group 'starhugger
+  :type 'sexp)
 
 (defun starhugger--post-process-content
     (generated-text &optional notify-end prompt)
@@ -217,7 +246,8 @@ To prevent key binding conflicts such as TAB."
 A single number means just use it without generating. nil means
 don't set temperature at all. Set this when the model doesn't
 honor use_cache = false."
-  :group 'starhugger)
+  :group 'starhugger
+  :type 'sexp)
 
 (defvar-local starhugger-query--last-prompt nil)
 
@@ -342,13 +372,15 @@ Recent suggestions are added to the beginning.")
   "Maximum number of saved suggestions in current buffer.
 Note that this includes all recently fetched suggestions so not
 all of them are relevant all the time."
-  :group 'starhugger)
+  :group 'starhugger
+  :type 'sexp)
 
 
 (defcustom starhugger-dismiss-suggestion-after-change t
   "Whether to clear the overlay when text changes.
 And when no partially accepted suggestions."
-  :group 'starhugger)
+  :group 'starhugger
+  :type 'sexp)
 
 (defun starhugger-active-suggestion--after-change-h
     (&optional _beg _end _old-len)
@@ -385,11 +417,13 @@ Allow quickly previewing to a different one. Use for commands
 such as `starhugger-trigger-suggestion'.
 
 Note that the model may return the same response repeatedly."
-  :group 'starhugger)
+  :group 'starhugger
+  :type 'sexp)
 
 (defcustom starhugger-low-number-of-suggestions-to-fetch 2
   "The number of suggestions to fetch (sequentially) when automatically."
-  :group 'starhugger)
+  :group 'starhugger
+  :type 'sexp)
 
 (defun starhugger--current-overlay-suggestion (&optional chop-stop-token)
   (-->
@@ -544,6 +578,9 @@ will (re-)apply for all."
       (starhugger--init-overlay recent-suggt pt))
     recent-suggt))
 
+;; TODO: implement this
+(defun starhugger--prompt ())
+
 ;;;###autoload
 (cl-defun starhugger-trigger-suggestion (&key interact force-new num)
   "Show AI-powered code suggestions as overlays.
@@ -596,7 +633,8 @@ unfinished fetches."
 
 (defcustom starhugger-trigger-suggestion-after-accepting t
   "Whether to continue triggering suggestion after accepting."
-  :group 'starhugger)
+  :group 'starhugger
+  :type 'sexp)
 
 (defun starhugger--accept-suggestion-partially (by &optional args)
   "Insert a part of active suggestion by the function BY.
@@ -729,11 +767,13 @@ Note that the number of suggestions are limited by
 Note that the time taken to fetch isn' instantaneous, so we have
 to wait more after this unless the suggestion(s) is already
 cached, for the suggestion to appear."
-  :group 'starhugger)
+  :group 'starhugger
+  :type 'sexp)
 
 (defcustom starhugger-auto-dismiss-when-move-out t
   "Whether to dismiss suggestion when moving point outside."
-  :group 'starhugger)
+  :group 'starhugger
+  :type 'sexp)
 
 (defvar-local starhugger--auto-timer nil)
 
