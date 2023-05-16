@@ -1,3 +1,9 @@
+* Version 0.1.16
+
+- Rename ~starhugger-toggle-debugging~ -> ~starhugger-toggle-debug~
+
+- Rename ~starhugger-high-number-of-suggestions-to-fetch~ -> ~starhugger-number-of-suggestions-to-fetch-interactively~, ~starhugger-low-number-of-suggestions-to-fetch~ -> ~starhugger-number-of-suggestions-to-fetch-non-automatically~
+
 * Version 0.1.15
 
 - Support fill in the middle mode
