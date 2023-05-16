@@ -39,14 +39,45 @@ The performance may not be great, but they are asynchronous so Emacs won't be bl
 
 ~starhugger-dismiss-suggestion~ (bound to =C-g= by default when showing) to cancel.
 
+There is also ~starhugger-auto-mode~ (non-global minor mode) but its usage isn't prioritized because of the limit rate.
+
+
+** Example configuration
+
+#+begin_src elisp
+
+(keymap-global-set "M-\\" #'starhugger-trigger-suggestion)
+
+(with-eval-after-load 'starhugger
+  
+  (setq starhugger-api-token "hf_ your token here")
+
+  (keymap-set starhugger-at-suggestion-map "TAB" #'starhugger-accept-suggestion)
+  (keymap-set starhugger-at-suggestion-map "M-[" #'starhugger-show-prev-suggestion)
+  (keymap-set starhugger-at-suggestion-map "M-]" #'starhugger-show-next-suggestion)
+  
+  (keymap-set starhugger-at-suggestion-map "M-f" #'starhugger-accept-suggestion-by-word)
+
+  ;; for evil users, dismiss after pressing ESC twice
+  (defvar my-evil-force-normal-state-hook '())
+  (defun my-evil-run-force-normal-state-hook-after-a (&rest _)
+    (run-hooks 'my-evil-force-normal-state-hook))
+
+  (defun my-starhugger-active-suggestion-mode-h ()
+    (add-hook 'my-evil-force-normal-state-hook #'starhugger-dismiss-suggestion nil t))
+
+  (add-hook 'starhugger-active-suggestion-mode-hook #'my-starhugger-active-suggestion-mode-h))
+
+#+end_src
+
+
+
 ** Notes
 
 
 Remember to set ~starhugger-api-token~ (from [[https://huggingface.co/settings/tokens]]), otherwise you may easily get hit by the limit rate.
 
 Demo: [[https://www.reddit.com/r/emacs/comments/13dlycc/bigcodestarcoder_integration]].
-
-This package is currently in a very turbulent state, expect breakages if you are using it!
 
 * TODO
 
@@ -74,4 +105,4 @@ This package is currently in a very turbulent state, expect breakages if you are
 
 - ½ +Support for auto-completing when typing: investigate Emacs's built-in ~completion-at-point-functions~'s asynchronous capabilities, or another framework?+
 
-- ? How about Transformers Agent [[https://huggingface.co/docs/transformers/transformers_agents]]?
+- ? How about Transformers Agents [[https://huggingface.co/docs/transformers/transformers_agents]]?

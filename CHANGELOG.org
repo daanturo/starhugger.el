@@ -1,16 +1,22 @@
+* Version 0.1.17
+
+- Introduce ~starhugger-trim-spaces-around-prompt~.
+
+- Rename ~starhugger-suggestion-beg-map~ to ~starhugger-at-suggestion-map~.
+
 * Version 0.1.16
 
-- Rename ~starhugger-toggle-debugging~ -> ~starhugger-toggle-debug~
+- Rename ~starhugger-toggle-debugging~ -> ~starhugger-toggle-debug~.
 
-- Rename ~starhugger-high-number-of-suggestions-to-fetch~ -> ~starhugger-number-of-suggestions-to-fetch-interactively~, ~starhugger-low-number-of-suggestions-to-fetch~ -> ~starhugger-number-of-suggestions-to-fetch-non-automatically~
+- Rename ~starhugger-high-number-of-suggestions-to-fetch~ -> ~starhugger-number-of-suggestions-to-fetch-interactively~, ~starhugger-low-number-of-suggestions-to-fetch~ -> ~starhugger-number-of-suggestions-to-fetch-non-automatically~.
 
 * Version 0.1.15
 
-- Support fill in the middle mode
+- Support fill in the middle mode.
 
 * Version 0.1.14
 
-- Rename ~starhugger-end-token~ -> ~starhugger-stop-token~, ~starhugger-strip-end-token~ -> ~starhugger-chop-stop-token~; like [[https://github.com/huggingface/huggingface-vscode]]
+- Rename ~starhugger-end-token~ -> ~starhugger-stop-token~, ~starhugger-strip-end-token~ -> ~starhugger-chop-stop-token~; like [[https://github.com/huggingface/huggingface-vscode]].
 
 * Version 0.1.13
 
