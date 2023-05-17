@@ -63,10 +63,10 @@ There is also ~starhugger-auto-mode~ (non-global minor mode) but its usage isn't
   (defun my-evil-run-force-normal-state-hook-after-a (&rest _)
     (run-hooks 'my-evil-force-normal-state-hook))
 
-  (defun my-starhugger-active-suggestion-mode-h ()
+  (defun my-starhugger-inline-mode-h ()
     (add-hook 'my-evil-force-normal-state-hook #'starhugger-dismiss-suggestion nil t))
 
-  (add-hook 'starhugger-active-suggestion-mode-hook #'my-starhugger-active-suggestion-mode-h))
+  (add-hook 'starhugger-inline-mode-hook #'my-starhugger-inline-mode-h))
 
 #+end_src
 
@@ -81,28 +81,24 @@ Demo: [[https://www.reddit.com/r/emacs/comments/13dlycc/bigcodestarcoder_integra
 
 * TODO
 
-- ✓ +Support setting parameters at [[https://huggingface.co/docs/api-inference/detailed_parameters#text-generation-task]]+
+- ✓ Support setting parameters at [[https://huggingface.co/docs/api-inference/detailed_parameters#text-generation-task]]
 
-- ✓ +VSCode-like previewing overlays: take after [[https://github.com/zerolfx/copilot.el]]+
+- ✓ VSCode-like previewing overlays: take after [[https://github.com/zerolfx/copilot.el]]
 
-- ✓ +Switching suggestion+
+- ✓ Switching suggestion
 
-- ✓ +Accept suggestion partially by words or lines+
+- ✓ Accept suggestion partially by words or lines
 
-- ✓ +TAB to complete more until "<|endoftext|>"+
+- ✓ Let ~starhugger-trigger-suggestion~ fetch about 3 suggestions to quickly cycle
 
-- ✓ +Let ~starhugger-trigger-suggestion~ fetch about 3 suggestions to quickly cycle+
-
-- ✓ +Fill-in-the-middle support  [[https://github.com/huggingface/huggingface-vscode]]: <fim_prefix>〈code before〉<fim_suffix>〈code after〉<fim_middle>+
-
-- ✓ +Temporarily save the immediately previous suggestion list+
+- ✓ Fill-in-the-middle support  [[https://github.com/huggingface/huggingface-vscode]]: <fim_prefix>〈code before〉<fim_suffix>〈code after〉<fim_middle>
 
 - ? More robust and reliable method to show a different suggestion
 
 - ½ /Batch-previewing multiple suggestions, maybe with syntax highlighting/
 
-- ✓ +Unaccept suggestion partially (by moving real text back to suggestion)+
+- ✓ Unaccept suggestion partially (by moving real text back to suggestion)
 
-- ½ +Support for auto-completing when typing: investigate Emacs's built-in ~completion-at-point-functions~'s asynchronous capabilities, or another framework?+
+- ½ Support for auto-completing when typing: investigate Emacs's built-in ~completion-at-point-functions~'s asynchronous capabilities, or another framework?
 
 - ? How about Transformers Agents [[https://huggingface.co/docs/transformers/transformers_agents]]?

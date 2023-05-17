@@ -1,6 +1,6 @@
 ;; -*- lexical-binding: t; -*-
 
-;; Version: 0.1.17
+;; Version: 0.1.18
 ;; Package-Requires: ((emacs "28.2") (compat "29.1.4.0") (dash "2.18.0") (spinner "1.7.4"))
 
 ;;; Commentary:
@@ -349,11 +349,11 @@ data to pass."
            proc `(:prompt ,prompt :args ,args ,@(process-plist proc))))
         request-buf))))
 
-;;;; Overlay suggestion
+;;;; Overlay inline suggestion
 
 (defvar-local starhugger--overlay nil)
 
-(defface starhugger-suggestion-face '((t :foreground "gray" :italic t))
+(defface starhugger-inline-suggestion-face '((t :foreground "gray" :italic t))
   "Face for suggestion overlays."
   :group 'starhugger)
 
@@ -377,14 +377,14 @@ all of them are relevant all the time."
   :group 'starhugger
   :type 'sexp)
 
-(defun starhugger-active-suggestion--after-change-h
+(defun starhugger-inlining--after-change-h
     (&optional _beg _end _old-len)
   (when (and this-command
              starhugger-dismiss-suggestion-after-change
              (not (starhugger--suggestion-accepted-partially)))
     (starhugger-dismiss-suggestion)))
 
-(define-minor-mode starhugger-active-suggestion-mode
+(define-minor-mode starhugger-inlining-mode
   "Not meant to be called normally.
 When this minor mode is off, the overlay must not be shown."
   :global nil
@@ -393,17 +393,17 @@ When this minor mode is off, the overlay must not be shown."
             (,(kbd "<remap> <keyboard-quit>") . starhugger-dismiss-suggestion)
             ;;
             )
-  (if starhugger-active-suggestion-mode
+  (if starhugger-inlining-mode
       (progn
-        (add-hook 'after-change-functions 'starhugger-active-suggestion--after-change-h nil t))
+        (add-hook 'after-change-functions 'starhugger-inlining--after-change-h nil t))
     (progn
-      (remove-hook 'after-change-functions 'starhugger-active-suggestion--after-change-h t)
+      (remove-hook 'after-change-functions 'starhugger-inlining--after-change-h t)
       (when (overlayp starhugger--overlay)
         (delete-overlay starhugger--overlay)))))
 
-(defun starhugger--ensure-active-suggestion-mode ()
-  (unless starhugger-active-suggestion-mode
-    (starhugger-active-suggestion-mode)))
+(defun starhugger--ensure-inlininng-mode ()
+  (unless starhugger-inlining-mode
+    (starhugger-inlining-mode)))
 
 (defcustom starhugger-number-of-suggestions-to-fetch-interactively 3
   "Positive natural number of suggestions to fetch interactively.
@@ -427,7 +427,11 @@ Note that the model may return the same response repeatedly."
      it)))
 
 (defvar starhugger-at-suggestion-map (make-sparse-keymap)
-  "Keymap used when at the beginning of suggestion overlay.")
+  "Use `starhugger-inline-menu-item' instead!
+This doesn't work at the end of buffer.
+
+Keymap used when at the beginning of suggestion overlay.")
+(make-obsolete-variable 'starhugger-at-suggestion-map nil "0.1.18")
 
 (defun starhugger--update-overlay (suggt &optional orig-pt)
   "Update overlay to displayer SUGGT after ORIG-PT.
@@ -437,7 +441,7 @@ ones."
   (-let* ((beg-pt (or orig-pt (point)))
           (suggt*
            (propertize suggt
-                       'face 'starhugger-suggestion-face
+                       'face 'starhugger-inline-suggestion-face
                        ;; allow placing the cursor before the overlay when
                        ;; 'before-string
                        'cursor t)))
@@ -475,8 +479,21 @@ ones."
                       nil
                       ;; allow inserting before the overlay
                       t t))
-  (overlay-put starhugger--overlay 'keymap starhugger-at-suggestion-map)
+  ;; (overlay-put starhugger--overlay 'keymap starhugger-at-suggestion-map)
   (starhugger--update-overlay suggt pt))
+
+(defun starhugger-at-suggestion-beg-p (&optional cmd)
+  "Return CMD (or true) when point is at suggestion start.
+See `starhugger-inline-menu-item'."
+  (and starhugger-inlining-mode
+       (equal (overlay-start starhugger--overlay) (point))
+       (or cmd t)))
+
+(defun starhugger-inline-menu-item (cmd)
+  "Return a CMD when only at the start of suggestion at run-time.
+Use this when binding keys. See info node `(elisp) Extended Menu
+Items'."
+  `(menu-item "" ,cmd nil :filter starhugger-at-suggestion-beg-p))
 
 (defun starhugger--suggestion-state (&optional pt)
   (if pt
@@ -560,7 +577,7 @@ will (re-)apply for all."
            (-some
             (-lambda ((state suggt)) (and (equal cur-state state) suggt))
             starhugger--suggestion-list)))
-    (starhugger--ensure-active-suggestion-mode)
+    (starhugger--ensure-inlininng-mode)
     (when recent-suggt
       (when starhugger-debug
         (starhugger--log
@@ -637,14 +654,14 @@ NUM: number of suggestions to fetch at once (actually
 sequentially, the newly fetched ones are appended silently).
 FORCE-NEW: try to fetch different responses. Non-nil INTERACT:
 show spinner."
-  (interactive (list :interact t :force-new starhugger-active-suggestion-mode))
+  (interactive (list :interact t :force-new starhugger-inlining-mode))
   (-let* ((num (or num starhugger-number-of-suggestions-to-fetch-interactively))
           (call-buf (current-buffer))
           (pt0 (point))
           (state (starhugger--suggestion-state))
           ;; (modftick (buffer-modified-tick))
           (prompt (starhugger--prompt)))
-    (starhugger--ensure-active-suggestion-mode)
+    (starhugger--ensure-inlininng-mode)
     (letrec ((func
               (lambda (fetch-time)
                 (starhugger--query-internal
@@ -660,7 +677,7 @@ show spinner."
                            ;; ;; TODO: why is the buffer modified here?
                            ;; (equal modftick (buffer-modified-tick))
                            (when (= 1 fetch-time)
-                             (starhugger--ensure-active-suggestion-mode)
+                             (starhugger--ensure-inlininng-mode)
                              (starhugger--init-overlay suggt-1st pt0))
                            (when (and (< fetch-time num)
                                       (< (length suggestions) num))
@@ -687,7 +704,7 @@ unfinished fetches."
       (dolist (request-buf starhugger--current-request-buffer-list)
         (delete-process (get-buffer-process request-buf))
         (kill-buffer request-buf))))
-  (starhugger-active-suggestion-mode 0))
+  (starhugger-inlining-mode 0))
 
 (defcustom starhugger-trigger-suggestion-after-accepting t
   "Whether to continue triggering suggestion after accepting."
@@ -728,7 +745,7 @@ ARGS. Note that BY should be `major-mode' dependant."
       text-to-insert)))
 
 (defun starhugger--suggestion-accepted-partially ()
-  (and starhugger-active-suggestion-mode
+  (and starhugger-inlining-mode
        (overlayp starhugger--overlay)
        (overlay-get starhugger--overlay 'starhugger-ovlp-partially-accepted)))
 
@@ -853,7 +870,7 @@ cached, for the suggestion to appear."
 ;;;###autoload
 (defun starhugger-auto--post-command-h ()
   (when (and starhugger--overlay
-             starhugger-active-suggestion-mode
+             starhugger-inlining-mode
              starhugger-auto-dismiss-when-move-out)
     (-let* ((beg
              (overlay-get
