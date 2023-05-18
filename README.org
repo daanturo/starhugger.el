@@ -77,7 +77,7 @@ There is also ~starhugger-auto-mode~ (non-global minor mode) but its usage isn't
 
 Remember to set ~starhugger-api-token~ (from [[https://huggingface.co/settings/tokens]]), otherwise you may easily get hit by the limit rate.
 
-Demo: [[https://www.reddit.com/r/emacs/comments/13dlycc/bigcodestarcoder_integration]].
+Demo: [[https://www.reddit.com/r/emacs/comments/13l9cm1/starhuggerel_now_displays_suggestions_as_overlays/]].
 
 *** Known quirks
 
