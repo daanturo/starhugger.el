@@ -1,8 +1,10 @@
 * Version 0.1.18
 
-- Deprecate ~starhugger-at-suggestion-map~ in favor of ~starhugger-inline-menu-item~
+- Auto mode: also trigger on deletions, but show cached only; now always dismiss on deletions, but thanks to cache no request are made when re-inserting.
 
-- Rename ~starhugger-suggestion-face~ to ~starhugger-inline-suggestion-face~, ~starhugger-active-suggestion-mode~ to ~starhugger-inlining-mode~
+- Deprecate ~starhugger-at-suggestion-map~ in favor of ~starhugger-inline-menu-item~.
+
+- Rename ~starhugger-suggestion-face~ to ~starhugger-inline-suggestion-face~, ~starhugger-active-suggestion-mode~ to ~starhugger-inlining-mode~.
 
 * Version 0.1.17
 

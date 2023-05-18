@@ -52,11 +52,11 @@ There is also ~starhugger-auto-mode~ (non-global minor mode) but its usage isn't
   
   (setq starhugger-api-token "hf_ your token here")
 
-  (keymap-set starhugger-at-suggestion-map "TAB" #'starhugger-accept-suggestion)
-  (keymap-set starhugger-at-suggestion-map "M-[" #'starhugger-show-prev-suggestion)
-  (keymap-set starhugger-at-suggestion-map "M-]" #'starhugger-show-next-suggestion)
+  (keymap-set starhugger-inlining-mode-map "TAB" (starhugger-inline-menu-item #'starhugger-accept-suggestion))
+  (keymap-set starhugger-inlining-mode-map "M-[" (starhugger-inline-menu-item #'starhugger-show-prev-suggestion))
+  (keymap-set starhugger-inlining-mode-map "M-]" (starhugger-inline-menu-item #'starhugger-show-next-suggestion))
   
-  (keymap-set starhugger-at-suggestion-map "M-f" #'starhugger-accept-suggestion-by-word)
+  (keymap-set starhugger-inlining-mode-map "M-f" (starhugger-inline-menu-item #'starhugger-accept-suggestion-by-word))
 
   ;; for evil users, dismiss after pressing ESC twice
   (defvar my-evil-force-normal-state-hook '())
@@ -78,6 +78,14 @@ There is also ~starhugger-auto-mode~ (non-global minor mode) but its usage isn't
 Remember to set ~starhugger-api-token~ (from [[https://huggingface.co/settings/tokens]]), otherwise you may easily get hit by the limit rate.
 
 Demo: [[https://www.reddit.com/r/emacs/comments/13dlycc/bigcodestarcoder_integration]].
+
+*** Known quirks
+
+Emacs overlays are used under the hood to display inline suggestion, there are some shortcomings with this approach:
+
+- Not possible to display PRE|<ov>SUF without using 2 different types of overlay properties when SUF isn't emtpy (in the middle of the buffer) and empty (at buffer end)
+
+- At the end of the buffer (overlaystart = overlay-end), the overlay's ~keymap~ property doesn't work
 
 * TODO
 

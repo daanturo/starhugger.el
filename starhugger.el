@@ -377,11 +377,10 @@ all of them are relevant all the time."
   :group 'starhugger
   :type 'sexp)
 
-(defun starhugger-inlining--after-change-h
-    (&optional _beg _end _old-len)
+(defun starhugger-inlining--after-change-h (&optional _beg _end _old-len)
   (when (and this-command
-             starhugger-dismiss-suggestion-after-change
-             (not (starhugger--suggestion-accepted-partially)))
+             ;; (not (starhugger--suggestion-accepted-partially))
+             starhugger-dismiss-suggestion-after-change)
     (starhugger-dismiss-suggestion)))
 
 (define-minor-mode starhugger-inlining-mode
@@ -440,11 +439,19 @@ non-nil (numeric) value, mark SUGGT and ORIG-PT as the original
 ones."
   (-let* ((beg-pt (or orig-pt (point)))
           (suggt*
-           (propertize suggt
-                       'face 'starhugger-inline-suggestion-face
-                       ;; allow placing the cursor before the overlay when
-                       ;; 'before-string
-                       'cursor t)))
+           (-->
+            (propertize suggt
+                        'face 'starhugger-inline-suggestion-face
+                        ;; allow placing the cursor before the overlay when
+                        ;; 'after-string
+                        'cursor t)
+            ;; WORKAROUND: when the suggestions begins with a newline, the point
+            ;; will be placed at the start of the first non-newline character,
+            ;; therefore won't stay at the current position visually, workaround
+            ;; this by prefixing with a space
+            (if (and (< 0 (length suggt)) (= ?\n (aref suggt 0)))
+                (concat " " it)
+              it))))
     (overlay-put starhugger--overlay 'starhugger-ovlp-current-suggestion suggt)
     (when orig-pt
       (overlay-put
@@ -453,10 +460,10 @@ ones."
        starhugger--overlay 'starhugger-ovlp-original-position orig-pt))
     ;; at end of buffer, 'display doesn't show anything because
     ;; `overlay-starr'=`overlay-end'
-    (if (eobp)
+    (if (<= (point-max) beg-pt)
         (progn
           (overlay-put starhugger--overlay 'display nil)
-          (overlay-put starhugger--overlay 'before-string suggt*))
+          (overlay-put starhugger--overlay 'after-string suggt*))
       ;; currently I can't find a way to to achieve this:
 
       ;; 〈before〉|〈overlay〉〈after〉
@@ -464,7 +471,7 @@ ones."
       ;; so the workaround is too concatenate "overlay" and "after" and and put
       ;; the overlay on "after"
       (progn
-        (overlay-put starhugger--overlay 'before-string nil)
+        (overlay-put starhugger--overlay 'after-string nil)
         (overlay-put
          starhugger--overlay
          'display
@@ -474,13 +481,14 @@ ones."
   "Initialize over to show SUGGT and mark PT as the original position."
   (when (and starhugger--overlay (overlay-buffer starhugger--overlay))
     (delete-overlay starhugger--overlay))
-  (setq starhugger--overlay
-        (make-overlay pt (+ pt 1)
-                      nil
-                      ;; allow inserting before the overlay
-                      t t))
-  ;; (overlay-put starhugger--overlay 'keymap starhugger-at-suggestion-map)
-  (starhugger--update-overlay suggt pt))
+  (when (<= pt (point-max))
+    (setq starhugger--overlay
+          (make-overlay pt (+ pt 1)
+                        nil
+                        ;; allow inserting before the overlay
+                        t t))
+    ;; (overlay-put starhugger--overlay 'keymap starhugger-at-suggestion-map)
+    (starhugger--update-overlay suggt pt)))
 
 (defun starhugger-at-suggestion-beg-p (&optional cmd)
   "Return CMD (or true) when point is at suggestion start.
@@ -580,12 +588,8 @@ will (re-)apply for all."
     (starhugger--ensure-inlininng-mode)
     (when recent-suggt
       (when starhugger-debug
-        (starhugger--log
-         #'starhugger--try-show-most-recent-suggestion
-         "at"
-         pt
-         ":"
-         recent-suggt))
+        (starhugger--log #'starhugger--try-show-most-recent-suggestion
+                         "at" pt ":" recent-suggt))
       (starhugger--init-overlay recent-suggt pt))
     recent-suggt))
 
@@ -687,12 +691,13 @@ show spinner."
                  :num num))))
       (funcall func 1))))
 
-(defun starhugger--triggger-suggestion-prefer-cache (in-buffer position)
-  (when (and (equal in-buffer (current-buffer))
-             (equal position (point)))
+(defun starhugger--triggger-suggestion-prefer-cache
+    (in-buffer position &optional cache-only)
+  (when (and (equal in-buffer (current-buffer)) (equal position (point)))
     (or (starhugger--try-show-most-recent-suggestion)
-        (starhugger-trigger-suggestion
-         :num starhugger-number-of-suggestions-to-fetch-automatically))))
+        (when (not cache-only)
+          (starhugger-trigger-suggestion
+           :num starhugger-number-of-suggestions-to-fetch-automatically)))))
 
 (defun starhugger-dismiss-suggestion (&optional stop-fetching)
   "Clear current suggestion and stop running requests.
@@ -728,6 +733,9 @@ ARGS. Note that BY should be `major-mode' dependant."
                (goto-char (point-min))
                (apply by args)
                (buffer-substring (point-min) (point)))))
+      (overlay-put starhugger--overlay 'starhugger-ovlp-partially-accepted t)
+      ;; insert after marking as partially-accepted
+      (insert text-to-insert)
       (if (equal suggt* text-to-insert)
           (progn
             (starhugger-dismiss-suggestion)
@@ -735,11 +743,7 @@ ARGS. Note that BY should be `major-mode' dependant."
                  (starhugger-trigger-suggestion :interact t)))
         (progn
           (starhugger--update-overlay
-           (string-remove-prefix text-to-insert suggt))
-          (overlay-put
-           starhugger--overlay 'starhugger-ovlp-partially-accepted t)))
-      ;; insert after marking as partially-accepted
-      (insert text-to-insert)
+           (string-remove-prefix text-to-insert suggt))))
       ;; maybe put parentheses balancer here?
       (run-hooks 'starhugger-post-insert-hook)
       text-to-insert)))
@@ -857,15 +861,15 @@ cached, for the suggestion to appear."
   (when this-command
     (when (timerp starhugger--auto-timer)
       (cancel-timer starhugger--auto-timer))
-    (when (and
-           (zerop old-len) ; insert only, don't trigger on deletion
-           (not (starhugger--suggestion-accepted-partially)))
-      (setq starhugger--auto-timer
-            (run-with-idle-timer starhugger-auto-idle-time
-                                 nil
-                                 #'starhugger--triggger-suggestion-prefer-cache
-                                 (current-buffer)
-                                 (point))))))
+    (setq starhugger--auto-timer
+          (run-with-idle-timer
+           starhugger-auto-idle-time
+           nil
+           #'starhugger--triggger-suggestion-prefer-cache
+           (current-buffer)
+           (point)
+           (< 0 old-len) ; don't fetch new when deleting
+           ))))
 
 ;;;###autoload
 (defun starhugger-auto--post-command-h ()
