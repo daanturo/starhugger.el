@@ -49,13 +49,14 @@ There is also ~starhugger-auto-mode~ (non-global minor mode) but its usage isn't
 (keymap-global-set "M-\\" #'starhugger-trigger-suggestion)
 
 (with-eval-after-load 'starhugger
-  
+
   (setq starhugger-api-token "hf_ your token here")
 
+  ;; `starhugger-inline-menu-item' makes a conditional binding that is only active at the inline suggestion start
   (keymap-set starhugger-inlining-mode-map "TAB" (starhugger-inline-menu-item #'starhugger-accept-suggestion))
   (keymap-set starhugger-inlining-mode-map "M-[" (starhugger-inline-menu-item #'starhugger-show-prev-suggestion))
   (keymap-set starhugger-inlining-mode-map "M-]" (starhugger-inline-menu-item #'starhugger-show-next-suggestion))
-  
+
   (keymap-set starhugger-inlining-mode-map "M-f" (starhugger-inline-menu-item #'starhugger-accept-suggestion-by-word))
 
   ;; for evil users, dismiss after pressing ESC twice
@@ -64,9 +65,11 @@ There is also ~starhugger-auto-mode~ (non-global minor mode) but its usage isn't
     (run-hooks 'my-evil-force-normal-state-hook))
 
   (defun my-starhugger-inline-mode-h ()
-    (add-hook 'my-evil-force-normal-state-hook #'starhugger-dismiss-suggestion nil t))
+    (add-hook 'my-evil-force-normal-state-hook
+              (lambda () (starhugger-dismiss-suggestion t))
+              nil t))
 
-  (add-hook 'starhugger-inline-mode-hook #'my-starhugger-inline-mode-h))
+  (add-hook 'starhugger-inlining-mode-hook #'my-starhugger-inline-mode-h))
 
 #+end_src
 

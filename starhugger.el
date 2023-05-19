@@ -700,8 +700,8 @@ show spinner."
            :num starhugger-number-of-suggestions-to-fetch-automatically)))))
 
 (defun starhugger-dismiss-suggestion (&optional stop-fetching)
-  "Clear current suggestion and stop running requests.
-Non-nil STOP-FETCHING (interactively true by default): also kill
+  "Clear current suggestion.
+Non-nil STOP-FETCHING (interactively, true by default): also kill
 unfinished fetches."
   (interactive (list (not current-prefix-arg)))
   (when stop-fetching
