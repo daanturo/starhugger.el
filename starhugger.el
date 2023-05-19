@@ -1,6 +1,6 @@
 ;; -*- lexical-binding: t; -*-
 
-;; Version: 0.1.18
+;; Version: 0.1.19
 ;; Package-Requires: ((emacs "28.2") (compat "29.1.4.0") (dash "2.18.0") (spinner "1.7.4"))
 
 ;;; Commentary:
@@ -19,9 +19,12 @@
 
 (defcustom starhugger-api-token nil
   "Hugging Face user access tokens.
-Generate yours at https://huggingface.co/settings/tokens."
+Generate yours at URL `https://huggingface.co/settings/tokens'.
+Can be either a direct string, or a function to be called with no
+arguments that returns a string. When being a function, it have
+to be fast to return."
   :group 'starhugger
-  :type 'sexp)
+  :type '(choice symbol string function))
 
 (defcustom starhugger-model-api-endpoint-url
   "https://api-inference.huggingface.co/models/bigcode/starcoder"
@@ -159,9 +162,11 @@ Additionally prevent errors about multi-byte characters."
            (url-request-extra-headers
             (or headers
                 `(("Content-Type" . "application/json")
-                  ,@(and (< 0 (length starhugger-api-token))
-                         `(("Authorization" .
-                            ,(format "Bearer %s" starhugger-api-token))))))))
+                  ,@(-some--> (cond ((stringp starhugger-api-token)
+                                     starhugger-api-token)
+                                    ((functionp starhugger-api-token)
+                                     (funcall starhugger-api-token)))
+                      `(("Authorization" . ,(format "Bearer %s" it))))))))
       (when starhugger-debug
         (dlet ((starhugger-log-buffer " *starhugger sent request data"))
           (starhugger--log data)))
@@ -462,7 +467,8 @@ ones."
     ;; `overlay-starr'=`overlay-end'
     (if (<= (point-max) beg-pt)
         (progn
-          (overlay-put starhugger--overlay 'display nil)
+          (when (overlay-get starhugger--overlay 'display)
+            (overlay-put starhugger--overlay 'display nil))
           (overlay-put starhugger--overlay 'after-string suggt*))
       ;; currently I can't find a way to to achieve this:
 
@@ -471,7 +477,8 @@ ones."
       ;; so the workaround is too concatenate "overlay" and "after" and and put
       ;; the overlay on "after"
       (progn
-        (overlay-put starhugger--overlay 'after-string nil)
+        (when (overlay-get starhugger--overlay 'after-string)
+          (overlay-put starhugger--overlay 'after-string nil))
         (overlay-put
          starhugger--overlay
          'display
@@ -488,6 +495,7 @@ ones."
                         ;; allow inserting before the overlay
                         t t))
     ;; (overlay-put starhugger--overlay 'keymap starhugger-at-suggestion-map)
+    (overlay-put starhugger--overlay 'priority 1)
     (starhugger--update-overlay suggt pt)))
 
 (defun starhugger-at-suggestion-beg-p (&optional cmd)
@@ -654,10 +662,12 @@ prompt."
 ;;;###autoload
 (cl-defun starhugger-trigger-suggestion (&key interact force-new num)
   "Show AI-powered code suggestions as overlays.
-NUM: number of suggestions to fetch at once (actually
-sequentially, the newly fetched ones are appended silently).
-FORCE-NEW: try to fetch different responses. Non-nil INTERACT:
-show spinner."
+When an inline suggestion is already showing, new suggestions
+will be fetched, you can switch to them by calling
+`starhugger-show-next-suggestion' after fetching finishes. NUM:
+number of suggestions to fetch at once (actually sequentially,
+the newly fetched ones are appended silently). FORCE-NEW: try to
+fetch different responses. Non-nil INTERACT: show spinner."
   (interactive (list :interact t :force-new starhugger-inlining-mode))
   (-let* ((num (or num starhugger-number-of-suggestions-to-fetch-interactively))
           (call-buf (current-buffer))

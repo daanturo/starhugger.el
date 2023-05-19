@@ -56,7 +56,6 @@ There is also ~starhugger-auto-mode~ (non-global minor mode) but its usage isn't
   (keymap-set starhugger-inlining-mode-map "TAB" (starhugger-inline-menu-item #'starhugger-accept-suggestion))
   (keymap-set starhugger-inlining-mode-map "M-[" (starhugger-inline-menu-item #'starhugger-show-prev-suggestion))
   (keymap-set starhugger-inlining-mode-map "M-]" (starhugger-inline-menu-item #'starhugger-show-next-suggestion))
-
   (keymap-set starhugger-inlining-mode-map "M-f" (starhugger-inline-menu-item #'starhugger-accept-suggestion-by-word))
 
   ;; for evil users, dismiss after pressing ESC twice
@@ -64,12 +63,35 @@ There is also ~starhugger-auto-mode~ (non-global minor mode) but its usage isn't
   (defun my-evil-run-force-normal-state-hook-after-a (&rest _)
     (run-hooks 'my-evil-force-normal-state-hook))
 
-  (defun my-starhugger-inline-mode-h ()
-    (add-hook 'my-evil-force-normal-state-hook
-              (lambda () (starhugger-dismiss-suggestion t))
-              nil t))
+  ;; workaround conflict with `blamer.el'
+  ;; (https://github.com/Artawower/blamer.el): when at the end of line, blamer's
+  ;; overlay's `after-string' property will display before starhugger's
+  ;; `display' property, which will result in starhugger's part of suggestion on
+  ;; current line (1) being pushed out of the display
 
-  (add-hook 'starhugger-inlining-mode-hook #'my-starhugger-inline-mode-h))
+  ;; <before point>|                            commit info<right edge of the window><suggestion after point, before newline>
+  ;; <the rest of suggestion>
+
+  ;; workaround: disable `blamer-mode' while `starhugger-inlining-mode'
+
+  (defvar-local my-starhugger-inlining-mode--blamer-mode-state nil)
+  (defvar-local blamer-mode nil)
+
+  (defun my-starhugger-inlining-mode-h ()
+    (if starhugger-inlining-mode
+        (progn
+          (add-hook 'my-evil-force-normal-state-hook
+                    (lambda () (starhugger-dismiss-suggestion t))
+                    nil t)
+          (setq my-starhugger-inlining-mode--blamer-mode-state blamer-mode)
+          (when my-starhugger-inlining-mode--blamer-mode-state
+            (blamer-mode 0)))
+      (progn
+        (when (and my-starhugger-inlining-mode--blamer-mode-state
+                   (not blamer-mode))
+          (blamer-mode 1)))))
+
+  (add-hook 'starhugger-inlining-mode-hook #'my-starhugger-inlining-mode-h))
 
 #+end_src
 
