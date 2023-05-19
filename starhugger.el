@@ -887,7 +887,7 @@ cached, for the suggestion to appear."
 (progn
 
   (define-minor-mode starhugger-auto-mode
-    "Automatic `starhugger-trigger-suggestion'."
+    "Automatic `starhugger-trigger-suggestion' in current buffer."
     :lighter " 💫"
     :global nil
     (if starhugger-auto-mode
