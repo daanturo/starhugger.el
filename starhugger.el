@@ -382,9 +382,11 @@ all of them are relevant all the time."
   :group 'starhugger
   :type 'sexp)
 
+(defvar-local starhugger--inline-inhibit-changing-overlay nil)
+
 (defun starhugger-inlining--after-change-h (&optional _beg _end _old-len)
   (when (and this-command
-             ;; (not (starhugger--suggestion-accepted-partially))
+             (not starhugger--inline-inhibit-changing-overlay)
              starhugger-dismiss-suggestion-after-change)
     (starhugger-dismiss-suggestion)))
 
@@ -731,37 +733,31 @@ unfinished fetches."
 Accept the part that is before the point after applying BY on
 ARGS. Note that BY should be `major-mode' dependant."
   (-when-let* ((pos (overlay-start starhugger--overlay)))
-    (goto-char pos)
-    (-let* ((suggt (starhugger--current-overlay-suggestion))
-            (suggt*
-             (if starhugger-chop-stop-token
-                 (string-remove-suffix starhugger-stop-token suggt)
-               suggt))
-            (text-to-insert
-             (with-temp-buffer
-               (insert suggt*)
-               (goto-char (point-min))
-               (apply by args)
-               (buffer-substring (point-min) (point)))))
-      (overlay-put starhugger--overlay 'starhugger-ovlp-partially-accepted t)
-      ;; insert after marking as partially-accepted
-      (insert text-to-insert)
-      (if (equal suggt* text-to-insert)
+    (dlet ((starhugger--inline-inhibit-changing-overlay t))
+      (goto-char pos)
+      (-let* ((suggt (starhugger--current-overlay-suggestion))
+              (suggt*
+               (if starhugger-chop-stop-token
+                   (string-remove-suffix starhugger-stop-token suggt)
+                 suggt))
+              (text-to-insert
+               (with-temp-buffer
+                 (insert suggt*)
+                 (goto-char (point-min))
+                 (apply by args)
+                 (buffer-substring (point-min) (point)))))
+        (insert text-to-insert)
+        (if (equal suggt* text-to-insert)
+            (progn
+              (starhugger-dismiss-suggestion)
+              (and starhugger-trigger-suggestion-after-accepting
+                   (starhugger-trigger-suggestion :interact t)))
           (progn
-            (starhugger-dismiss-suggestion)
-            (and starhugger-trigger-suggestion-after-accepting
-                 (starhugger-trigger-suggestion :interact t)))
-        (progn
-          (starhugger--update-overlay
-           (string-remove-prefix text-to-insert suggt))))
-      ;; maybe put parentheses balancer here?
-      (run-hooks 'starhugger-post-insert-hook)
-      text-to-insert)))
-
-(defun starhugger--suggestion-accepted-partially ()
-  (and starhugger-inlining-mode
-       (overlayp starhugger--overlay)
-       (overlay-get starhugger--overlay 'starhugger-ovlp-partially-accepted)))
+            (starhugger--update-overlay
+             (string-remove-prefix text-to-insert suggt))))
+        ;; maybe put parentheses balancer here?
+        (run-hooks 'starhugger-post-insert-hook)
+        text-to-insert))))
 
 (defun starhugger-accept-suggestion ()
   "Insert the whole suggestion."
@@ -792,10 +788,10 @@ ARGS. Note that BY should be `major-mode' dependant."
   (-let* ((orig-point
            (overlay-get starhugger--overlay 'starhugger-ovlp-original-position))
           (str (buffer-substring orig-point (point))))
-    (delete-char (- (length str)))
-    (overlay-put starhugger--overlay 'starhugger-ovlp-partially-accepted nil)
-    (starhugger--update-overlay
-     (concat str (starhugger--current-overlay-suggestion)))))
+    (dlet ((starhugger--inline-inhibit-changing-overlay t))
+      (delete-char (- (length str)))
+      (starhugger--update-overlay
+       (concat str (starhugger--current-overlay-suggestion))))))
 
 
 (defun starhugger--get-prev-suggestion-index (delta suggestions)
@@ -868,7 +864,7 @@ cached, for the suggestion to appear."
 
 ;;;###autoload
 (defun starhugger-auto--after-change-h (&optional _beg _end old-len)
-  (when this-command
+  (when (and this-command (not starhugger--inline-inhibit-changing-overlay))
     (when (timerp starhugger--auto-timer)
       (cancel-timer starhugger--auto-timer))
     (setq starhugger--auto-timer
@@ -885,7 +881,8 @@ cached, for the suggestion to appear."
 (defun starhugger-auto--post-command-h ()
   (when (and starhugger--overlay
              starhugger-inlining-mode
-             starhugger-auto-dismiss-when-move-out)
+             starhugger-auto-dismiss-when-move-out
+             (not starhugger--inline-inhibit-changing-overlay))
     (-let* ((beg
              (overlay-get
               starhugger--overlay 'starhugger-ovlp-original-position))
