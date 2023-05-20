@@ -635,12 +635,14 @@ prompt."
                (cond
                 ((and (> avail-pre intend-pre-len) (< avail-suf intend-suf-len))
                  (vector
-                  (- (point) (- starhugger-max-prompt-length avail-suf))
+                  (max (- (point) (- starhugger-max-prompt-length avail-suf))
+                       (point-min))
                   (point-max)))
                 ((and (< avail-pre intend-pre-len) (> avail-suf intend-suf-len))
                  (vector
                   (point-min)
-                  (+ (point) (- starhugger-max-prompt-length avail-pre))))
+                  (min (+ (point) (- starhugger-max-prompt-length avail-pre))
+                       (point-max))))
                 ((and (< avail-pre intend-pre-len) (< avail-suf intend-suf-len))
                  (vector (point-min) (point-max)))
                 (t

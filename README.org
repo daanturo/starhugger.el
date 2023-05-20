@@ -56,42 +56,51 @@ There is also ~starhugger-auto-mode~ (non-global minor mode) but its usage isn't
   (keymap-set starhugger-inlining-mode-map "TAB" (starhugger-inline-menu-item #'starhugger-accept-suggestion))
   (keymap-set starhugger-inlining-mode-map "M-[" (starhugger-inline-menu-item #'starhugger-show-prev-suggestion))
   (keymap-set starhugger-inlining-mode-map "M-]" (starhugger-inline-menu-item #'starhugger-show-next-suggestion))
-  (keymap-set starhugger-inlining-mode-map "M-f" (starhugger-inline-menu-item #'starhugger-accept-suggestion-by-word))
+  (keymap-set starhugger-inlining-mode-map "M-f" (starhugger-inline-menu-item #'starhugger-accept-suggestion-by-word)))
 
-  ;; for evil users, dismiss after pressing ESC twice
-  (defvar my-evil-force-normal-state-hook '())
-  (defun my-evil-run-force-normal-state-hook-after-a (&rest _)
-    (run-hooks 'my-evil-force-normal-state-hook))
+#+end_src
 
-  ;; workaround conflict with `blamer.el'
-  ;; (https://github.com/Artawower/blamer.el): when at the end of line, blamer's
-  ;; overlay's `after-string' property will display before starhugger's
-  ;; `display' property, which will result in starhugger's part of suggestion on
-  ;; current line (1) being pushed out of the display
+Additional settings
 
-  ;; <before point>|                            commit info<right edge of the window><suggestion after point, before newline>
-  ;; <the rest of suggestion>
+#+begin_src elisp
 
-  ;; workaround: disable `blamer-mode' while `starhugger-inlining-mode'
+;; For evil users, dismiss after pressing ESC twice
+(defvar my-evil-force-normal-state-hook '())
+(defun my-evil-run-force-normal-state-hook-after-a (&rest _)
+  (run-hooks 'my-evil-force-normal-state-hook))
 
-  (defvar-local my-starhugger-inlining-mode--blamer-mode-state nil)
-  (defvar-local blamer-mode nil)
+(advice-add #'evil-force-normal-state
+ :after #'my-evil-run-force-normal-state-hook-after-a)
 
-  (defun my-starhugger-inlining-mode-h ()
-    (if starhugger-inlining-mode
-        (progn
-          (add-hook 'my-evil-force-normal-state-hook
-                    (lambda () (starhugger-dismiss-suggestion t))
-                    nil t)
-          (setq my-starhugger-inlining-mode--blamer-mode-state blamer-mode)
-          (when my-starhugger-inlining-mode--blamer-mode-state
-            (blamer-mode 0)))
+;; Workaround conflict with `blamer.el'
+;; (https://github.com/Artawower/blamer.el): when at the end of line, blamer's
+;; overlay's `after-string' property will display before starhugger's
+;; `display' property, which will result in starhugger's part of suggestion on
+;; current line (1) being pushed out of the display
+
+;; <before point>|                            commit info<right edge of the window><suggestion after point, before newline>
+;; <the rest of suggestion>
+
+;; workaround: disable `blamer-mode' while `starhugger-inlining-mode'
+
+(defvar-local my-starhugger-inlining-mode--blamer-mode-state nil)
+(defvar-local blamer-mode nil)
+
+(defun my-starhugger-inlining-mode-h ()
+  (if starhugger-inlining-mode
       (progn
-        (when (and my-starhugger-inlining-mode--blamer-mode-state
-                   (not blamer-mode))
-          (blamer-mode 1)))))
+        (add-hook 'my-evil-force-normal-state-hook
+                  (lambda () (starhugger-dismiss-suggestion t))
+                  nil t)
+        (setq my-starhugger-inlining-mode--blamer-mode-state blamer-mode)
+        (when my-starhugger-inlining-mode--blamer-mode-state
+          (blamer-mode 0)))
+    (progn
+      (when (and my-starhugger-inlining-mode--blamer-mode-state
+                 (not blamer-mode))
+        (blamer-mode 1)))))
 
-  (add-hook 'starhugger-inlining-mode-hook #'my-starhugger-inlining-mode-h))
+(add-hook 'starhugger-inlining-mode-hook #'my-starhugger-inlining-mode-h)
 
 #+end_src
 
@@ -110,13 +119,15 @@ From the model ([[https://huggingface.co/bigcode/starcoder]]):
 
 - Doesn't use ~num_return_sequences~ ([[https://huggingface.co/docs/api-inference/detailed_parameters#text-generation-task][detailed_parameters]]) to return multiple responses, workaround by fetching sequentially (asynchronously).
 
-- Doesn't use ~use_cache~, current workaround to force a different response: randomizing ~temperature~.
+- Doesn't use ~use_cache~, current workaround is forcing a different response via randomizing ~temperature~.
 
 Emacs overlays are used under the hood to display inline suggestion, there are some shortcomings with this approach:
 
 - Not possible to display PRE|<ov>SUF without using 2 different types of overlay properties when SUF isn't emtpy (in the middle of the buffer) and empty (at buffer end)
 
 - At the end of the buffer (overlaystart = overlay-end), the overlay's ~keymap~ property doesn't work
+
+- Conflict with [[https://github.com/Artawower/blamer.el]], mentioned in "Example configuration"
 
 * TODO
 
@@ -139,5 +150,6 @@ Emacs overlays are used under the hood to display inline suggestion, there are s
 - ✓ Unaccept suggestion partially (by moving real text back to suggestion)
 
 - ½ Support for auto-completing when typing: investigate Emacs's built-in ~completion-at-point-functions~'s asynchronous capabilities, or another framework?
+  Current implementation: ~starhugger-auto-mode~ using overlays
 
 - ? How about Transformers Agents [[https://huggingface.co/docs/transformers/transformers_agents]]?
