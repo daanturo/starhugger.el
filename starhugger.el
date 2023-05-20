@@ -635,19 +635,18 @@ prompt."
                (cond
                 ((and (> avail-pre intend-pre-len) (< avail-suf intend-suf-len))
                  (vector
-                  (max (- (point) (- starhugger-max-prompt-length avail-suf))
-                       (point-min))
+                  (- (point) (- starhugger-max-prompt-length avail-suf))
                   (point-max)))
                 ((and (< avail-pre intend-pre-len) (> avail-suf intend-suf-len))
                  (vector
                   (point-min)
-                  (min (+ (point) (- starhugger-max-prompt-length avail-pre))
-                       (point-max))))
-                ((and (< avail-pre intend-pre-len) (< avail-suf intend-suf-len))
-                 (vector (point-min) (point-max)))
+                  (+ (point) (- starhugger-max-prompt-length avail-pre))))
                 (t
                  (vector
                   (- (point) intend-pre-len) (+ (point) intend-suf-len)))))
+              ([pre-beg-pos suf-end-pos]
+               (vector
+                (max (point-min) pre-beg-pos) (min (point-max) suf-end-pos)))
               (suf-str
                (-->
                 (buffer-substring-no-properties (point) suf-end-pos)
@@ -779,7 +778,7 @@ ARGS. Note that BY should be `major-mode' dependant."
   (interactive "p")
   (starhugger--accept-suggestion-partially #'forward-line (list n)))
 (defun starhugger-accept-suggestion-by-paragraph (n)
-  "Insert N lines from the suggestion."
+  "Insert N paragraphs from the suggestion."
   (interactive "p")
   (starhugger--accept-suggestion-partially #'forward-paragraph (list n)))
 
