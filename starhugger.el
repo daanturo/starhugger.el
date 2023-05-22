@@ -344,16 +344,18 @@ data to pass."
 
 (defvar-local starhugger--overlay nil)
 
-(defface starhugger-inline-suggestion-fa)
-ce
-'((t :foreground "gray" :italic t
-   ;; override `:underline' so that the flymake (or any other on-the-fly
-   ;; checker) error at point won't make the suggestion unreadable because of
-   ;; the intrusive underlines, `:extend' prevents drawn underlines after line
-   ;; ends
-   :underline nil :extend t))
-"Face for suggestion overlays."
-:group 'starhugger
+(defface starhugger-inline-suggestion-face
+  '((t
+     :foreground "gray"
+     :italic t
+     ;; override `:underline' so that the flymake (or any other on-the-fly
+     ;; checker) errors at point won't make the suggestion unreadable because of
+     ;; the intrusive underlines, `:extend' prevents drawn underlines after line
+     ;; ends
+     :underline nil
+     :extend t))
+  "Face for suggestion overlays."
+  :group 'starhugger)
 
 ;; We may as well use a ring (`make-ring'), but it doesn't have a built-in way
 ;; to modify elements in-place
