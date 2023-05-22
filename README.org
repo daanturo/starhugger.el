@@ -11,13 +11,13 @@ Add one of those to your configuration.
   (package-vc-install '(starhugger :url "https://gitlab.com/daanturo/starhugger.el")))
 
 ;; straight.el
-(straight-use-package '(starhugger :url "https://gitlab.com/daanturo/starhugger.el"))
+(straight-use-package '(starhugger :repo "https://gitlab.com/daanturo/starhugger.el"))
 
 ;; Doom
-(package! starhugger (:url "https://gitlab.com/daanturo/starhugger.el"))
+(package! starhugger (:repo "https://gitlab.com/daanturo/starhugger.el"))
 
 ;; elpaca.el
-(elpaca (starhugger :url "https://gitlab.com/daanturo/starhugger.el"))
+(elpaca (starhugger :repo "https://gitlab.com/daanturo/starhugger.el"))
 
 #+end_src
 
