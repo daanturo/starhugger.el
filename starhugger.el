@@ -116,20 +116,11 @@ See also `starhugger-additional-data-alist'."
   :group 'starhugger
   :type 'sexp)
 
-(defcustom starhugger-hexify-request-data nil
-  "Whether to hexify string before making request and unhex when receiving.
-Warning: this will increase the token count by a significant magnitude!"
-  :group 'starhugger
-  :type 'sexp)
-
 (defun starhugger--json-serialize (object &rest args)
   "Like (`json-serialize' OBJECT @ARGS).
 Additionally prevent errors about multi-byte characters."
   (-->
-   object (apply #'json-serialize it args)
-   (if starhugger-hexify-request-data
-       it
-     (encode-coding-string it 'utf-8))))
+   object (apply #'json-serialize it args) (encode-coding-string it 'utf-8)))
 
 (defvar starhugger--last-request nil)
 (defvar starhugger-debug nil)
@@ -152,20 +143,20 @@ Additionally prevent errors about multi-byte characters."
   (-let* ((data
            (or data
                (starhugger--json-serialize
-                `((inputs .
-                   ,(if starhugger-hexify-request-data
-                        (url-hexify-string prompt)
-                      prompt))
-                  (parameters ,@+parameters) (options ,@+options))))))
+                `((inputs . ,prompt)
+                  (parameters ,@+parameters)
+                  (options ,@+options))))))
     (dlet ((url-request-method (or method "POST"))
            (url-request-data data)
            (url-request-extra-headers
             (or headers
                 `(("Content-Type" . "application/json")
-                  ,@(-some--> (cond ((stringp starhugger-api-token)
-                                     starhugger-api-token)
-                                    ((functionp starhugger-api-token)
-                                     (funcall starhugger-api-token)))
+                  ,@(-some-->
+                        (cond
+                         ((stringp starhugger-api-token)
+                          starhugger-api-token)
+                         ((functionp starhugger-api-token)
+                          (funcall starhugger-api-token)))
                       `(("Authorization" . ,(format "Bearer %s" it))))))))
       (when starhugger-debug
         (dlet ((starhugger-log-buffer " *starhugger sent request data"))
@@ -175,11 +166,7 @@ Additionally prevent errors about multi-byte characters."
        (lambda (status)
          (-let* ((content
                   (and url-http-end-of-headers
-                       (-->
-                        (buffer-substring url-http-end-of-headers (point-max))
-                        (if starhugger-hexify-request-data
-                            (decode-coding-string (url-unhex-string it) 'utf-8)
-                          it)))))
+                       (buffer-substring url-http-end-of-headers (point-max)))))
            (setq starhugger--last-request
                  (list
                   :response-content content
