@@ -344,9 +344,16 @@ data to pass."
 
 (defvar-local starhugger--overlay nil)
 
-(defface starhugger-inline-suggestion-face '((t :foreground "gray" :italic t))
-  "Face for suggestion overlays."
-  :group 'starhugger)
+(defface starhugger-inline-suggestion-fa)
+ce
+'((t :foreground "gray" :italic t
+   ;; override `:underline' so that the flymake (or any other on-the-fly
+   ;; checker) error at point won't make the suggestion unreadable because of
+   ;; the intrusive underlines, `:extend' prevents drawn underlines after line
+   ;; ends
+   :underline nil :extend t))
+"Face for suggestion overlays."
+:group 'starhugger
 
 ;; We may as well use a ring (`make-ring'), but it doesn't have a built-in way
 ;; to modify elements in-place
@@ -682,7 +689,7 @@ fetch different responses. Non-nil INTERACT: show spinner."
                    (with-current-buffer call-buf
                      (-let* ((suggt-1st (-first-item suggestions)))
                        (starhugger--add-to-suggestion-list suggestions state)
-                       ;; only display when didn't move or interacive (in that
+                       ;; only display when didn't move or interactive (in that
                        ;; case we are explicitly waiting)
                        (when (or interact (= pt0 (point)))
                          ;; ;; TODO: why is the buffer modified here?
