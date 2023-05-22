@@ -393,9 +393,12 @@ When this minor mode is off, the overlay must not be shown."
       (when (overlayp starhugger--overlay)
         (delete-overlay starhugger--overlay)))))
 
-(defun starhugger--ensure-inlininng-mode ()
-  (unless starhugger-inlining-mode
-    (starhugger-inlining-mode)))
+(defun starhugger--ensure-inlininng-mode (&optional off)
+  (if off
+      (when starhugger-inlining-mode
+        (starhugger-inlining-mode 0))
+    (unless starhugger-inlining-mode
+      (starhugger-inlining-mode))))
 
 (defcustom starhugger-number-of-suggestions-to-fetch-interactively 3
   "Positive natural number of suggestions to fetch interactively.
@@ -472,9 +475,12 @@ ones."
          'display
          (concat suggt* (buffer-substring beg-pt (+ beg-pt 1))))))))
 
+(defun starhugger--active-overlay-p ()
+  (and starhugger--overlay (overlay-buffer starhugger--overlay)))
+
 (defun starhugger--init-overlay (suggt pt)
   "Initialize over to show SUGGT and mark PT as the original position."
-  (when (and starhugger--overlay (overlay-buffer starhugger--overlay))
+  (when (starhugger--active-overlay-p)
     (delete-overlay starhugger--overlay))
   (when (<= pt (point-max))
     (setq starhugger--overlay
@@ -581,8 +587,8 @@ will (re-)apply for all."
            (-some
             (-lambda ((state suggt)) (and (equal cur-state state) suggt))
             starhugger--suggestion-list)))
-    (starhugger--ensure-inlininng-mode)
     (when recent-suggt
+      (starhugger--ensure-inlininng-mode)
       (when starhugger-debug
         (starhugger--log #'starhugger--try-show-most-recent-suggestion
                          "at" pt ":" recent-suggt))
@@ -684,9 +690,11 @@ fetch different responses. Non-nil INTERACT: show spinner."
                          (when (= 1 fetch-time)
                            (starhugger--ensure-inlininng-mode)
                            (starhugger--init-overlay suggt-1st pt0))
-                         (when (and (< fetch-time num)
-                                    (< (length suggestions) num))
-                           (funcall func (+ fetch-time 1))))))))
+                         (cond
+                          ((and (< fetch-time num) (< (length suggestions) num))
+                           (funcall func (+ fetch-time 1)))
+                          ((not (starhugger--active-overlay-p))
+                           (starhugger--ensure-inlininng-mode 0))))))))
                :spin (or starhugger-debug interact)
                :force-new (or force-new (< 1 fetch-time))
                :num num))))
