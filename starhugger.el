@@ -306,11 +306,10 @@ data to pass."
           ((&alist 'options +options 'parameters +parameters)
            (and force-new (starhugger--data-for-different-response)))
           ((&alist 'parameters dynm-parameters 'options dynm-options)
-           starhugger-additional-data-alist)
-          (prompt* prompt))
+           starhugger-additional-data-alist))
     (letrec ((request-buf
               (starhugger--request
-               prompt*
+               prompt
                (lambda (returned)
                  (when (buffer-live-p call-buf)
                    (with-current-buffer call-buf
@@ -325,7 +324,7 @@ data to pass."
                             (starhugger--get-all-generated-texts returned)))
                      (funcall callback gen-texts)
                      (when display
-                       (starhugger--record-generated prompt* gen-texts
+                       (starhugger--record-generated prompt gen-texts
                                                      display)))))
                :+options `(,@+options ,@dynm-options)
                :+parameters `(,@(and starhugger-max-new-tokens
@@ -665,31 +664,33 @@ fetch different responses. Non-nil INTERACT: show spinner."
           (state (starhugger--suggestion-state))
           ;; (modftick (buffer-modified-tick))
           (prompt (starhugger--prompt)))
-    (starhugger--ensure-inlininng-mode)
-    (letrec ((func
-              (lambda (fetch-time)
-                (starhugger--query-internal
-                 prompt
-                 (lambda (suggestions)
-                   (when (buffer-live-p call-buf)
-                     (with-current-buffer call-buf
-                       (-let* ((suggt-1st (-first-item suggestions)))
-                         (starhugger--add-to-suggestion-list suggestions state)
-                         ;; only display when didn't move or interacive (in that
-                         ;; case we are explicitly waiting)
-                         (when (or interact (= pt0 (point)))
-                           ;; ;; TODO: why is the buffer modified here?
-                           ;; (equal modftick (buffer-modified-tick))
-                           (when (= 1 fetch-time)
-                             (starhugger--ensure-inlininng-mode)
-                             (starhugger--init-overlay suggt-1st pt0))
-                           (when (and (< fetch-time num)
-                                      (< (length suggestions) num))
-                             (funcall func (+ fetch-time 1))))))))
-                 :spin (or starhugger-debug interact)
-                 :force-new (or force-new (< 1 fetch-time))
-                 :num num))))
-      (funcall func 1))))
+    (when (< 0 (length prompt))
+      (starhugger--ensure-inlininng-mode)
+      (letrec
+          ((func
+            (lambda (fetch-time)
+              (starhugger--query-internal
+               prompt
+               (lambda (suggestions)
+                 (when (buffer-live-p call-buf)
+                   (with-current-buffer call-buf
+                     (-let* ((suggt-1st (-first-item suggestions)))
+                       (starhugger--add-to-suggestion-list suggestions state)
+                       ;; only display when didn't move or interacive (in that
+                       ;; case we are explicitly waiting)
+                       (when (or interact (= pt0 (point)))
+                         ;; ;; TODO: why is the buffer modified here?
+                         ;; (equal modftick (buffer-modified-tick))
+                         (when (= 1 fetch-time)
+                           (starhugger--ensure-inlininng-mode)
+                           (starhugger--init-overlay suggt-1st pt0))
+                         (when (and (< fetch-time num)
+                                    (< (length suggestions) num))
+                           (funcall func (+ fetch-time 1))))))))
+               :spin (or starhugger-debug interact)
+               :force-new (or force-new (< 1 fetch-time))
+               :num num))))
+        (funcall func 1)))))
 
 (defun starhugger--triggger-suggestion-prefer-cache
     (in-buffer position &optional cache-only)
