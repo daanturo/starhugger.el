@@ -22,7 +22,10 @@
 Generate yours at URL `https://huggingface.co/settings/tokens'.
 Can be either a direct string, or a function to be called with no
 arguments that returns a string. When being a function, it have
-to be fast to return."
+to be fast to return.
+
+Note: it must be a unibyte string, ensure that before setting
+dynamically with (`encode-coding-string' ... \\='utf-8)."
   :group 'starhugger
   :type '(choice symbol string function))
 
@@ -226,24 +229,6 @@ for the relevant tokens."
   :group 'starhugger
   :type 'sexp)
 
-(defun starhugger--post-process-content
-    (generated-text &optional notify-end prompt)
-  (-->
-   generated-text
-   (if starhugger-strip-prompt-before-insert
-       (string-remove-prefix prompt it)
-     it)
-   (if starhugger-chop-stop-token
-       (-let* ((end-flag (string-suffix-p starhugger-stop-token it)))
-         (when (and end-flag notify-end)
-           (message "%s received from %s !"
-                    starhugger-stop-token
-                    starhugger-model-api-endpoint-url))
-         (if end-flag
-             (string-remove-suffix starhugger-stop-token it)
-           it))
-     it)))
-
 (defun starhugger-turn-off-completion-in-region-mode ()
   "Use this when inserting parsed response.
 To prevent key binding conflicts such as TAB."
@@ -261,9 +246,9 @@ the model doesn't honor use_cache = false.
 
 To test if the model honors use_cache = false, run this twice in the shell:
 
-curl 'https://api-inference.huggingface.co/models/bigcode/starcoder' \\
+curl https://api-inference.huggingface.co/models/bigcode/starcoder \\
     -X POST \\
-    -H 'Content-Type: application/json' \\
+    -H \"Content-Type: application/json\" \\
     -d '{\"options\": {\"use_cache\": false},\"inputs\": \"ping!\"}'
 
 It should return 2 different responses."

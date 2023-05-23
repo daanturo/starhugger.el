@@ -7,6 +7,24 @@
 
 ;;; Code:
 
+(defun starhugger--post-process-content
+    (generated-text &optional notify-end prompt)
+  (-->
+   generated-text
+   (if starhugger-strip-prompt-before-insert
+       (string-remove-prefix prompt it)
+     it)
+   (if starhugger-chop-stop-token
+       (-let* ((end-flag (string-suffix-p starhugger-stop-token it)))
+         (when (and end-flag notify-end)
+           (message "%s received from %s !"
+                    starhugger-stop-token
+                    starhugger-model-api-endpoint-url))
+         (if end-flag
+             (string-remove-suffix starhugger-stop-token it)
+           it))
+     it)))
+
 ;;;###autoload
 (cl-defun starhugger-query (prompt &rest args &key beg-pos end-pos display force-new)
   "Interactive send PROMPT to the model.
