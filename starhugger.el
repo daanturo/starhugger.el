@@ -207,7 +207,7 @@ Enable this when the return_full_text parameter isn't honored."
 
 (defcustom starhugger-fill-tokens
   '("<fim_prefix>" "<fim_suffix>" "<fim_middle>")
-  "A list 3 token to use for `starhugger-fill-in-the-middle'.
+  "List of 3 tokens to use for `starhugger-fill-in-the-middle'.
 See
 https://github.com/huggingface/huggingface-vscode/blob/73818334f4939c2f19480a404f74944a47933a12/src/runCompletion.ts#L66"
   :group 'starhugger
@@ -612,13 +612,11 @@ prompt."
          (string-trim-left it)
        it))))
 
-(defun starhugger--prompt ()
-  "Build the prompt to send to the model."
+(defun starhugger--prompt-build-components ()
   (if (and starhugger-fill-in-the-middle
            ;; don't use fill mode when at trailing newlines
            (not (looking-at-p "\n*\\'")))
-      (-let* (((pre-token mid-token suf-token) starhugger-fill-tokens)
-              (intend-suf-len
+      (-let* ((intend-suf-len
                (floor
                 (* starhugger-max-prompt-length
                    starhugger-prompt-after-point-fraction)))
@@ -653,8 +651,18 @@ prompt."
                 (if starhugger-trim-spaces-around-prompt
                     (string-trim-left it)
                   it))))
-        (concat pre-token pre-str mid-token suf-str suf-token))
-    (starhugger--no-fill-prompt)))
+        (vector pre-str suf-str))
+    (vector (starhugger--no-fill-prompt) nil)))
+
+(defun starhugger--prompt ()
+  "Build the prompt to send to the model."
+  (-let* (([pre-comp suf-comp] (starhugger--prompt-build-components))
+          ((pre-token mid-token suf-token) starhugger-fill-tokens))
+    (cond
+     (suf-comp
+      (concat pre-token pre-comp mid-token suf-comp suf-token))
+     (t
+      pre-comp))))
 
 ;;;###autoload
 (cl-defun starhugger-trigger-suggestion (&key interact force-new num)
