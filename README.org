@@ -117,7 +117,7 @@ Demo: [[https://www.reddit.com/r/emacs/comments/13l9cm1/starhuggerel_now_display
 
 From the model ([[https://huggingface.co/bigcode/starcoder]]):
 
-- Doesn't use ~num_return_sequences~ ([[https://huggingface.co/docs/api-inference/detailed_parameters#text-generation-task][detailed_parameters]]) to return multiple responses, workaround by fetching sequentially (asynchronously).
+- Doesn't use ~num_return_sequences~ ([[https://huggingface.co/docs/api-inference/detailed_parameters#text-generation-task][detailed_parameters]]) to return multiple responses, workaround by making multiple requests.
 
 - Doesn't use ~use_cache~, current workaround is forcing a different response via randomizing ~temperature~.
 
@@ -135,8 +135,6 @@ Emacs overlays are used under the hood to display inline suggestion, there are s
 
 - ✓ VSCode-like previewing overlays: take after [[https://github.com/zerolfx/copilot.el]]
 
-- ✓ Switching suggestion
-
 - ✓ Accept suggestion partially by words or lines
 
 - ✓ Let ~starhugger-trigger-suggestion~ fetch about 3 suggestions to quickly cycle
@@ -153,3 +151,5 @@ Emacs overlays are used under the hood to display inline suggestion, there are s
   Current implementation: ~starhugger-auto-mode~ using overlays
 
 - ? How about Transformers Agents [[https://huggingface.co/docs/transformers/transformers_agents]]?
+
+- ? Find a way to take other files into account [[https://thakkarparth007.github.io/copilot-explorer/posts/copilot-internals.html][Copilot Internals | thakkarparth007.github.io]]
