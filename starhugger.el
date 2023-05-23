@@ -125,13 +125,6 @@ Additionally prevent errors about multi-byte characters."
 (defvar starhugger--last-request nil)
 (defvar starhugger-debug nil)
 
-;;;###autoload
-(defun starhugger-toggle-debug ()
-  "More verbose logging (and maybe indicators)."
-  (interactive)
-  (setq starhugger-debug (not starhugger-debug))
-  (message "`starhugger-debug' := %s" starhugger-debug))
-
 (defvar starhugger-before-request-hook '()
   "Hook run before making an HTTP request.")
 
@@ -652,13 +645,13 @@ prompt."
                (-->
                 (buffer-substring-no-properties (point) suf-end-pos)
                 (if starhugger-trim-spaces-around-prompt
-                    (string-trim-left it)
+                    (string-trim-right it)
                   it)))
               (pre-str
                (-->
                 (buffer-substring-no-properties pre-beg-pos (point))
                 (if starhugger-trim-spaces-around-prompt
-                    (string-trim-right it)
+                    (string-trim-left it)
                   it))))
         (concat pre-token pre-str mid-token suf-str suf-token))
     (starhugger--no-fill-prompt)))
