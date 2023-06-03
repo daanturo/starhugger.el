@@ -23,7 +23,7 @@ Add one of those to your configuration.
 
 Or any package manager of your choice.
 
-This package also requires those dependencies: [[https://github.com/emacs-compat/compat][compat]], [[https://github.com/magnars/dash.el][dash]], [[https://github.com/Malabarba/spinner.el][spinner]].
+This package also requires those dependencies: [[https://github.com/emacs-compat/compat][compat]], [[https://github.com/magnars/dash.el][dash]], [[https://github.com/Malabarba/spinner.el][spinner]], [[https://github.com/magnars/s.el][s.el]].
 
 * Usage
 

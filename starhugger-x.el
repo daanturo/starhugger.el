@@ -29,9 +29,9 @@
 (cl-defun starhugger-query (prompt &rest args &key beg-pos end-pos display force-new)
   "Interactive send PROMPT to the model.
 Non-nil END-POS (interactively when prefix arg: active region's
-end of current point): insert the parsed response there.
-BEG-POS:the beginning of the prompt area. Non-nil DISPLAY:
-displays the parsed response. FORCE-NEW: disable caching (options
+end of current point): insert the parsed response there. BEG-POS:
+the beginning of the prompt area. Non-nil DISPLAY: displays the
+parsed response. FORCE-NEW: disable caching (options
 wait_for_model), interactively: PROMPT equals the old one. ARGS
 is optional arguments."
   (interactive (-let* ((prompt
