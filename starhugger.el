@@ -109,7 +109,9 @@ Doesn't count fills tokens and maybe the context."
   "Detailed parameter list.
 An association list to be converted by `json-serialize'. See
 https://huggingface.co/docs/api-inference/detailed_parameters#text-generation-task
-for parameters."
+for parameters. Note that this packages is built around the
+parameter \"return_full_text\" being false, setting it otherwise
+may cause unexpected behaviors."
   :group 'starhugger
   :type 'sexp)
 
@@ -176,21 +178,30 @@ Additionally prevent errors about multi-byte characters."
            (funcall callback content)))
        nil t))))
 
-(defun starhugger--record-generated
-    (prompt parsed-response-list &optional display)
-  (with-current-buffer (get-buffer-create starhugger-generated-buffer)
-    (when (zerop (buffer-size))
-      (insert "Initial model: " starhugger-model-api-endpoint-url "\n"))
-    (goto-char (point-max))
-    (apply #'insert
-           "\n> "
-           prompt
-           "\n\n"
-           (-interpose "\n\n" parsed-response-list))
-    (insert "\n"))
-  (when display
-    (save-selected-window
-      (pop-to-buffer starhugger-generated-buffer))))
+(defun starhugger--record-propertize (str)
+  (propertize str 'face '(:foreground "yellow" :weight bold)))
+
+(cl-defun starhugger--record-generated (prompt parsed-response-list &key display parameters)
+  (-let* ((buf (get-buffer-create starhugger-generated-buffer)))
+    (with-current-buffer buf
+
+      (goto-char (point-max))
+      (insert (starhugger--record-propertize "#*> INPUT to API: "))
+      (insert (format "(with parameters %s)" parameters) "\n")
+      (insert prompt)
+      (insert "\n\n")
+
+      (--each parsed-response-list
+        (insert
+         (starhugger--record-propertize
+          (format "#*> OUTPUT  #%d from API:" it-index)))
+        (insert "\n" it "\n\n"))
+
+      (insert "\n\n\n"))
+    (when display
+      (save-selected-window
+        (pop-to-buffer starhugger-generated-buffer)))
+    buf))
 
 (defcustom starhugger-strip-prompt-before-insert nil
   "Whether to remove the prompt in the parsed response before inserting.
@@ -269,6 +280,28 @@ It should return 2 different responses."
        ,@(and starhugger-retry-temperature-range
               `((temperature . ,starhugger-retry-temperature-range)))))))
 
+(cl-defun starhugger--query-internal-1 (prompt callback &key +options +parameters display)
+  (starhugger--request
+   prompt
+   (lambda (returned)
+     (when returned
+       (-let* ((gen-texts-or-error
+                (condition-case err
+                    (starhugger--get-all-generated-texts returned)
+                  (error (message "Error: %S" err) 'error)))
+               (error-flag (equal gen-texts-or-error 'error)))
+         (unless error-flag
+           (funcall callback gen-texts-or-error))
+         (starhugger--record-generated
+          prompt
+          (if error-flag
+              returned
+            gen-texts-or-error)
+          :display display
+          :parameters `((options . ,+options) (parameters . ,+parameters))))))
+   :+options +options
+   :+parameters +parameters))
+
 (cl-defun starhugger--query-internal (prompt callback &rest args &key display spin force-new num &allow-other-keys)
   "CALLBACK is called with the generated text list.
 PROMPT is the prompt to use. DISPLAY is whether to display the
@@ -286,30 +319,26 @@ data to pass."
           ((&alist 'parameters dynm-parameters 'options dynm-options)
            starhugger-additional-data-alist))
     (letrec ((request-buf
-              (starhugger--request
+              (starhugger--query-internal-1
                prompt
-               (lambda (returned)
+               (lambda (gen-texts)
                  (when (buffer-live-p call-buf)
                    (with-current-buffer call-buf
+                     ;; what if there are multiple requests in a single buffer?
                      (setq starhugger--current-request-buffer-list
                            (delete
                             request-buf
                             starhugger--current-request-buffer-list))))
                  (when spin
                    (funcall spin-obj))
-                 (when returned
-                   (-let* ((gen-texts
-                            (starhugger--get-all-generated-texts returned)))
-                     (funcall callback gen-texts)
-                     (when display
-                       (starhugger--record-generated prompt gen-texts
-                                                     display)))))
+                 (funcall callback gen-texts))
                :+options `(,@+options ,@dynm-options)
                :+parameters `(,@(and starhugger-max-new-tokens
                                      `((max_new_tokens . ,starhugger-max-new-tokens)))
                               ,@(and num `((num_return_sequences . ,num)))
                               ,@+parameters
-                              ,@dynm-parameters))))
+                              ,@dynm-parameters)
+               :display display)))
       (push request-buf starhugger--current-request-buffer-list)
       (-let* ((proc (get-buffer-process request-buf)))
         (set-process-query-on-exit-flag proc nil)
@@ -661,7 +690,7 @@ dependencies. Also remember to reduce
                   "starhugger-grep-context")
 
 (defun starhugger--async-prompt (&optional callback)
-  "CALLBACK is called with built prompt."
+  "CALLBACK is called with the constructed prompt."
   (-let* (([pre-compon suf-compon] (starhugger--prompt-build-components))
           ((pre-token mid-token suf-token) starhugger-fill-tokens)
           (wrapped-callback
@@ -669,13 +698,11 @@ dependencies. Also remember to reduce
              (-let* ((prompt
                       (cond
                        (suf-compon
-                        (concat
-                         pre-token
-                         dumb-context
-                         pre-compon
-                         mid-token
-                         suf-compon
-                         suf-token))
+                        (concat pre-token
+                                dumb-context pre-compon
+                                mid-token
+                                suf-compon
+                                suf-token))
                        (t
                         (concat dumb-context pre-compon)))))
                (funcall callback prompt)))))

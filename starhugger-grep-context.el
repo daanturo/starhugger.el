@@ -196,10 +196,13 @@ Or when an error occurs, with nil."
                          (funcall callback lines)))
                      (kill-buffer buf))
                  (progn
-                   (message "%s %s error: %s"
+                   (message "%s %s
+error: %s
+%s"
                             (file-name-nondirectory script-path)
                             script-json-arg
-                            event)
+                            event
+                            (buffer-string))
                    (funcall callback nil)))))
             (proc
              (start-process "starhugger-grep-context--get-lines" buf script-path
