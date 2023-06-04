@@ -58,7 +58,7 @@ Credit: `process-lines-handling-status'."
 
 (defun starhugger-grep-context--top-level-regex ()
   "Return a Rust regex for top-level definitions.
-Still include script statements."
+May still include script statements."
   (eval-when-compile
     (-->
      `(,(concat
@@ -67,6 +67,8 @@ Still include script statements."
          "[(]" ; function indicator
          ".*?[^\"',;.]$" ; doesn't end with those, cause it looks more like a natural sentence
          )
+       ;; C macros
+       "^#define "
        ;; lisp
        "^\\(([-a-z]+-)?def")
      (string-join it "|") (concat "(" it ")"))))
@@ -106,10 +108,10 @@ Still include script statements."
      ;; (maybe return type then) a brace
      ".*?\\{")))
 
-(defvar starhugger-grep-context--ignore-keywords
-  '("if" "while"
+(defvar starhugger-grep-context--ignored-keywords
+  '["if" "while"
     ;;
-    "switch" "else" "elif" "when" "for" "catch" "return")
+    "switch" "else" "elif" "when" "for" "catch" "return"]
   "List of keywords to ignore when looking for context.
 When they are at line beginning.")
 
@@ -146,50 +148,35 @@ When nil, project context won't be used."
 (cl-defun starhugger-grep-context--command-args (&key ext)
   (when starhugger-grep-context-ripgrep-executable
     (-let* ((cmd-args
-             `(,starhugger-grep-context-ripgrep-executable
+             `[,starhugger-grep-context-ripgrep-executable
                ,@(starhugger-grep-context--command-args-globs
                   (or ext (-some--> buffer-file-name (file-name-extension it))))
                "--no-line-number"
                "--no-filename"
                "--max-columns=192"
                ,(and (not starhugger-debug) "--color=never")
-               ,@(starhugger-grep-context--regex-args))))
+               ,@(starhugger-grep-context--regex-args)]))
       cmd-args)))
 
-(defun starhugger-grep-context--process-grepped-buffer (compare-text callback)
-  (-let* ((lines
-           (-->
-            (starhugger--buffer-string-lines) (delete "" it) (delete-dups it)
-            (cl-delete-if
-             (lambda (line)
-               (-some
-                (lambda (kw) (string-match-p (format "^[ \t]*%s\\b" kw) line))
-                starhugger-grep-context--ignore-keywords))
-             it)))
-          (sorted
-           (cl-sort
-            lines #'<
-            :key (lambda (line)
-                   (-let* ((len (length line))
-                           (distance (string-distance compare-text line)))
-                     ;; don't penalize long lines so harsh
-                     (if (< 1 len)
-                         (/ distance (log len))
-                       distance)))))
-          (top-lines
-           (save-match-data
-             (-->
-              (ntake starhugger-grep-context--max-lines sorted)
-              (cl-stable-sort
-               it #'>
-               :key (lambda (line) (string-match "[^ \t]" line)))))))
-    (funcall callback top-lines)))
+(defvar starhugger-grep-context--script-path nil)
+(defun starhugger-grep-context--script-path ()
+  "Return the path of the script to execute for grepping the context.
+Reason(s ) for using another non-Elisp script: The filtering and
+sorting computation is a bit expensive to run so it will block
+Emacs, while current Emacs lisp's asynchronous capabilities are
+not great: `async-start' doesn't have access to the environment
+of the current Emacs session including packages and libraries."
+  (with-memoization starhugger-grep-context--script-path
+    (or (locate-library "starhugger-grep-context.py")
+        (error
+         "%s not found, please review your installation recipe."
+         "starhugger-grep-context.py"))))
 
 (defun starhugger-grep-context--get-lines (callback)
   "CALLBACK is called with the grepped lines as argument.
 Or when an error occurs, with nil."
   (starhugger--at-project-root
-    (-let* (((prog . args) (starhugger-grep-context--command-args))
+    (-let* ((grep-args (starhugger-grep-context--command-args))
             (compare-text
              (concat
               (-let* ((prj (project-current))
@@ -202,21 +189,31 @@ Or when an error occurs, with nil."
                   (file-name-base buffer-file-name))
                  (t
                   (buffer-name))))))
+            (script-arg
+             (json-serialize
+              `((command-arguments . ,grep-args)
+                (compare-text . ,compare-text)
+                (ignored-keywords . ,starhugger-grep-context--ignored-keywords)
+                (max-lines . ,starhugger-grep-context--max-lines))))
             (buf (generate-new-buffer " starhugger-grep-context--get-lines"))
+            (script-path (starhugger-grep-context--script-path))
             (proc
-             (apply #'start-process
-                    "starhugger-grep-context--get-lines"
-                    buf
-                    prog
-                    args)))
+             (start-process "starhugger-grep-context--get-lines" buf script-path
+                            script-arg)))
       (set-process-sentinel
        proc
-       (lambda (_proc _event)
-         (and (zerop (process-exit-status proc))
-              (with-current-buffer buf
-                (starhugger-grep-context--process-grepped-buffer
-                 compare-text callback)))
-         (kill-buffer buf))))))
+       (lambda (_proc event)
+         (if (zerop (process-exit-status proc))
+             (progn
+               (with-current-buffer buf
+                 (-let* ((lines (starhugger--buffer-string-lines)))
+                   (funcall callback lines)))
+               (kill-buffer buf))
+           (message "%s %s error: %s"
+                    (file-name-nondirectory script-path)
+                    script-arg
+                    event))))
+      proc)))
 
 
 ;;; starhugger-project-context.el ends here
