@@ -1,10 +1,14 @@
-* Version 0.2.0-main
+* Version 0.2.1-main
 
-- Remove ~starhugger-toggle-debug~
+- Introduce ~starhugger-enable-dumb-grep-context~.
+
+* Version 0.2.0
+
+- Remove ~starhugger-toggle-debug~.
 
 * Version 0.1.19
 
-- Remove ~starhugger-hexify-request-data~
+- Remove ~starhugger-hexify-request-data~.
 
 - Support ~starhugger-api-token~ being a function.
 

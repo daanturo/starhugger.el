@@ -1,6 +1,6 @@
 ;; -*- lexical-binding: t; -*-
 
-;; Version: 0.2.0
+;; Version: 0.2.1-main
 ;; Package-Requires: ((emacs "28.2") (compat "29.1.4.0") (dash "2.18.0") (s "1.13.1") (spinner "1.7.4"))
 
 ;;; Commentary:
@@ -61,7 +61,7 @@ dynamically with (`encode-coding-string' ... \\='utf-8)."
 
 (defcustom starhugger-max-prompt-length (* 1024 8)
   "Max length of the prompt to send.
-Doesn't count fills tokens."
+Doesn't count fills tokens and maybe the context."
   :group 'starhugger
   :type 'sexp)
 
@@ -642,7 +642,8 @@ prompt."
 (defcustom starhugger-enable-dumb-grep-context nil
   "Whether to inject a dumb grep-based project-wide context to the prompt.
 Experimental! This requires ripgrep and python3 as hard
-dependencies."
+dependencies. Also remember to reduce
+`starhugger-max-prompt-length' if you enable this."
   :group 'starhugger
   :type 'boolean)
 

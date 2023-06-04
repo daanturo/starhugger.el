@@ -1,5 +1,7 @@
 An unfancy Emacs extension for [[https://huggingface.co/bigcode/starcoder]] integration.
 
+Demo: [[https://www.reddit.com/r/emacs/comments/13l9cm1/starhuggerel_now_displays_suggestions_as_overlays/][Reddit]].
+
 * Installation
 
 Add one of those to your configuration.
@@ -111,7 +113,6 @@ Additional settings
 
 Remember to set ~starhugger-api-token~ (from [[https://huggingface.co/settings/tokens]]), otherwise you may easily get hit by the limit rate.
 
-Demo: [[https://www.reddit.com/r/emacs/comments/13l9cm1/starhuggerel_now_displays_suggestions_as_overlays/][Reddit]].
 
 *** Known quirks
 
