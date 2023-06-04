@@ -639,15 +639,48 @@ prompt."
         (vector pre-str suf-str))
     (vector (starhugger--no-fill-prompt) nil)))
 
+(defcustom starhugger-enable-dumb-grep-context nil
+  "Whether to inject a dumb grep-based project-wide context to the prompt.
+Experimental! This requires ripgrep and python3 as hard
+dependencies."
+  :group 'starhugger
+  :type 'boolean)
+
 (defun starhugger--prompt ()
   "Build the prompt to send to the model."
-  (-let* (([pre-comp suf-comp] (starhugger--prompt-build-components))
+  (-let* (([pre-compon suf-compon] (starhugger--prompt-build-components))
           ((pre-token mid-token suf-token) starhugger-fill-tokens))
     (cond
-     (suf-comp
-      (concat pre-token pre-comp mid-token suf-comp suf-token))
+     (suf-compon
+      (concat pre-token pre-compon mid-token suf-compon suf-token))
      (t
-      pre-comp))))
+      pre-compon))))
+
+(declare-function starhugger-grep-context--prefix-comments
+                  "starhugger-grep-context")
+
+(defun starhugger--async-prompt (&optional callback)
+  "CALLBACK is called with built prompt."
+  (-let* (([pre-compon suf-compon] (starhugger--prompt-build-components))
+          ((pre-token mid-token suf-token) starhugger-fill-tokens)
+          (wrapped-callback
+           (lambda (dumb-context)
+             (-let* ((prompt
+                      (cond
+                       (suf-compon
+                        (concat
+                         pre-token
+                         dumb-context
+                         pre-compon
+                         mid-token
+                         suf-compon
+                         suf-token))
+                       (t
+                        (concat dumb-context pre-compon)))))
+               (funcall callback prompt)))))
+    (if starhugger-enable-dumb-grep-context
+        (starhugger-grep-context--prefix-comments wrapped-callback)
+      (funcall wrapped-callback ""))))
 
 ;;;###autoload
 (cl-defun starhugger-trigger-suggestion (&key interact force-new num)
@@ -659,41 +692,44 @@ number of suggestions to fetch at once (actually sequentially,
 the newly fetched ones are appended silently). FORCE-NEW: try to
 fetch different responses. Non-nil INTERACT: show spinner."
   (interactive (list :interact t :force-new starhugger-inlining-mode))
-  (-let* ((num (or num starhugger-number-of-suggestions-to-fetch-interactively))
-          (call-buf (current-buffer))
-          (pt0 (point))
-          (state (starhugger--suggestion-state))
-          ;; (modftick (buffer-modified-tick))
-          (prompt (starhugger--prompt)))
-    (when (< 0 (length prompt))
-      (starhugger--ensure-inlininng-mode)
-      (letrec
-          ((func
-            (lambda (fetch-time)
-              (starhugger--query-internal
-               prompt
-               (lambda (suggestions)
-                 (when (buffer-live-p call-buf)
-                   (with-current-buffer call-buf
-                     (-let* ((suggt-1st (-first-item suggestions)))
-                       (starhugger--add-to-suggestion-list suggestions state)
-                       ;; only display when didn't move or interactive (in that
-                       ;; case we are explicitly waiting)
-                       (when (or interact (= pt0 (point)))
-                         ;; ;; TODO: why is the buffer modified here?
-                         ;; (equal modftick (buffer-modified-tick))
-                         (when (= 1 fetch-time)
-                           (starhugger--ensure-inlininng-mode)
-                           (starhugger--init-overlay suggt-1st pt0))
-                         (cond
-                          ((and (< fetch-time num) (< (length suggestions) num))
-                           (funcall func (+ fetch-time 1)))
-                          ((not (starhugger--active-overlay-p))
-                           (starhugger--ensure-inlininng-mode 0))))))))
-               :spin (or starhugger-debug interact)
-               :force-new (or force-new (< 1 fetch-time))
-               :num num))))
-        (funcall func 1)))))
+  (-let*
+      ((num (or num starhugger-number-of-suggestions-to-fetch-interactively))
+       (call-buf (current-buffer))
+       (pt0 (point))
+       (state (starhugger--suggestion-state))
+       (callback
+        (lambda (prompt)
+          (when (< 0 (length prompt))
+            (starhugger--ensure-inlininng-mode)
+            (letrec
+                ((func
+                  (lambda (fetch-time)
+                    (starhugger--query-internal
+                     prompt
+                     (lambda (suggestions)
+                       (when (buffer-live-p call-buf)
+                         (with-current-buffer call-buf
+                           (-let* ((suggt-1st (-first-item suggestions)))
+                             (starhugger--add-to-suggestion-list
+                              suggestions state)
+                             ;; only display when didn't move or interactive (in that
+                             ;; case we are explicitly waiting)
+                             (when (or interact (= pt0 (point)))
+                               ;; ;; TODO: why is the buffer modified here?
+                               (when (= 1 fetch-time)
+                                 (starhugger--ensure-inlininng-mode)
+                                 (starhugger--init-overlay suggt-1st pt0))
+                               (cond
+                                ((and (< fetch-time num)
+                                      (< (length suggestions) num))
+                                 (funcall func (+ fetch-time 1)))
+                                ((not (starhugger--active-overlay-p))
+                                 (starhugger--ensure-inlininng-mode 0))))))))
+                     :spin (or starhugger-debug interact)
+                     :force-new (or force-new (< 1 fetch-time))
+                     :num num))))
+              (funcall func 1))))))
+    (starhugger--async-prompt callback)))
 
 (defun starhugger--triggger-suggestion-prefer-cache
     (in-buffer position &optional cache-only)

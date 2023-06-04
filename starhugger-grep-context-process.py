@@ -21,8 +21,10 @@ max_lines = args["max-lines"]
 assert isinstance(max_lines, int)
 
 ignored_keywords = args["ignored-keywords"]
-ignored_kw_re = "|".join(f"^[ \t]*{kw}\b" for kw in ignored_keywords)
-ignored_kw_re = f"{ignored_kw_re}|[^_-]main[^_-]"
+
+ignored_kw_re = "|".join(f"^[ \t]*{kw}\\b" for kw in ignored_keywords)
+# main function isn't interesting here
+ignored_kw_re = f"{ignored_kw_re}|[ \t]main[ \t(]"
 ignored_kw_re = re.compile(ignored_kw_re)
 
 

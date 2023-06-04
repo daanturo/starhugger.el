@@ -9,11 +9,12 @@
 
 ;;; Helpers
 
+(defun starhugger--project-root ()
+  (-some--> (project-current) (project-root it)))
+
 (cl-defmacro starhugger--at-project-root (&rest body)
   (declare (debug t) (indent defun))
-  `(dlet ((default-directory
-           (or (-some--> (project-current) (project-root it))
-               default-directory)))
+  `(dlet ((default-directory (or (starhugger--project-root) default-directory)))
      ,@body))
 
 (defun starhugger--not-literal-regex (str &optional additional-negations)
@@ -45,16 +46,6 @@ Credit: `process-lines-handling-status'."
     (nreverse lines)))
 
 ;;; Dumb Grep/Regex-based project-wide code context
-
-;;
-;; This is a very naive implementation of project-wide context.
-;; It's not meant to be used in production, but it's a good
-;; starting point for a more sophisticated one.
-;;
-;; It's based on ripgrep, which is a Rust-based grep.
-;;
-;; It's not meant to be used in production, but it's a good
-;; starting point for a more sophistic
 
 (defun starhugger-grep-context--top-level-regex ()
   "Return a Rust regex for top-level definitions.
@@ -115,7 +106,7 @@ May still include script statements."
   "List of keywords to ignore when looking for context.
 When they are at line beginning.")
 
-(defvar starhugger-grep-context--max-lines 192)
+(defvar starhugger-grep-context--max-lines 96)
 
 (defun starhugger-grep-context--regex-args ()
   `("-e"
@@ -153,7 +144,7 @@ When nil, project context won't be used."
                   (or ext (-some--> buffer-file-name (file-name-extension it))))
                "--no-line-number"
                "--no-filename"
-               "--max-columns=192"
+               "--max-columns=160"
                ,(and (not starhugger-debug) "--color=never")
                ,@(starhugger-grep-context--regex-args)]))
       cmd-args)))
@@ -167,10 +158,10 @@ Emacs, while current Emacs lisp's asynchronous capabilities are
 not great: `async-start' doesn't have access to the environment
 of the current Emacs session including packages and libraries."
   (with-memoization starhugger-grep-context--script-path
-    (or (locate-library "starhugger-grep-context.py")
+    (or (locate-library "starhugger-grep-context-process.py")
         (error
          "%s not found, please review your installation recipe."
-         "starhugger-grep-context.py"))))
+         "starhugger-grep-context-process.py"))))
 
 (defun starhugger-grep-context--get-lines (callback)
   "CALLBACK is called with the grepped lines as argument.
@@ -179,17 +170,16 @@ Or when an error occurs, with nil."
     (-let* ((grep-args (starhugger-grep-context--command-args))
             (compare-text
              (concat
-              (-let* ((prj (project-current))
-                      (prj-root (and prj (project-root prj))))
+              (-let* ((prj-root (starhugger--project-root)))
                 (cond
-                 ((and prj buffer-file-name)
+                 ((and prj-root buffer-file-name)
                   (file-name-sans-extension
                    (file-relative-name buffer-file-name prj-root)))
                  (buffer-file-name
                   (file-name-base buffer-file-name))
                  (t
                   (buffer-name))))))
-            (script-arg
+            (script-json-arg
              (json-serialize
               `((command-arguments . ,grep-args)
                 (compare-text . ,compare-text)
@@ -197,25 +187,50 @@ Or when an error occurs, with nil."
                 (max-lines . ,starhugger-grep-context--max-lines))))
             (buf (generate-new-buffer " starhugger-grep-context--get-lines"))
             (script-path (starhugger-grep-context--script-path))
+            (wrapped-callback
+             (lambda (stn-proc event)
+               (if (zerop (process-exit-status stn-proc))
+                   (progn
+                     (with-current-buffer buf
+                       (-let* ((lines (starhugger--buffer-string-lines)))
+                         (funcall callback lines)))
+                     (kill-buffer buf))
+                 (progn
+                   (message "%s %s error: %s"
+                            (file-name-nondirectory script-path)
+                            script-json-arg
+                            event)
+                   (funcall callback nil)))))
             (proc
              (start-process "starhugger-grep-context--get-lines" buf script-path
-                            script-arg)))
-      (set-process-sentinel
-       proc
-       (lambda (_proc event)
-         (if (zerop (process-exit-status proc))
-             (progn
-               (with-current-buffer buf
-                 (-let* ((lines (starhugger--buffer-string-lines)))
-                   (funcall callback lines)))
-               (kill-buffer buf))
-           (message "%s %s error: %s"
-                    (file-name-nondirectory script-path)
-                    script-arg
-                    event))))
+                            script-json-arg)))
+      (set-process-sentinel proc wrapped-callback)
       proc)))
 
+(defvar-local starhugger-grep-context--prefix-comments--cache nil)
 
-;;; starhugger-project-context.el ends here
+;;;###autoload
+(defun starhugger-grep-context--prefix-comments (callback)
+  "CALLBACK is called with an annotated comment string as argument.
+This must be called in the completing buffer."
+  (if starhugger-grep-context--prefix-comments--cache
+      (funcall callback starhugger-grep-context--prefix-comments--cache)
+    (-let* ((buf0 (current-buffer))
+            (cmt-beg comment-start)
+            (cmt-end comment-end)
+            (cmt-end* (and (< 0 (length cmt-end)) (concat " " cmt-end)))
+            (cmt-fn (lambda (str) (concat cmt-beg " " str cmt-end*))))
+      (starhugger-grep-context--get-lines
+       (lambda (lines)
+         (-let* ((commented-lines
+                  (--> lines (-map cmt-fn it) (string-join it "\n")))
+                 (note (--> "Context in other files:" (funcall cmt-fn it)))
+                 (context (concat note "\n" commented-lines "\n")))
+           (with-current-buffer buf0
+             (setq starhugger-grep-context--prefix-comments--cache context)
+             (funcall callback context))))))))
 
-(provide 'starhugger-project-context)
+
+;;; starhugger-grep-context.el ends here
+
+(provide 'starhugger-grep-context)
