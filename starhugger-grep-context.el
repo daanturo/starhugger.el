@@ -227,8 +227,11 @@ This must be called in the completing buffer."
        (lambda (lines)
          (-let* ((commented-lines
                   (--> lines (-map cmt-fn it) (string-join it "\n")))
-                 (note (--> "Context in other files:" (funcall cmt-fn it)))
-                 (context (concat note "\n" commented-lines "\n")))
+                 (note (funcall cmt-fn "Context in other files:"))
+                 (context
+                  (if (< 0 (length lines))
+                      (concat note "\n" commented-lines "\n")
+                    "")))
            (with-current-buffer buf0
              (setq starhugger-grep-context--prefix-comments--cache context)
              (funcall callback context))))))))

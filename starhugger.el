@@ -187,7 +187,7 @@ Additionally prevent errors about multi-byte characters."
 
       (goto-char (point-max))
       (insert (starhugger--record-propertize "#*> INPUT to API: "))
-      (insert (format "(with parameters %s)" parameters) "\n")
+      (insert (format "(with parameters %s)" parameters) "\n\n")
       (insert prompt)
       (insert "\n\n")
 
