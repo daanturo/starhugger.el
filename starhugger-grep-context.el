@@ -5,7 +5,7 @@
 
 (require 'project)
 
-;; (require 's)
+(require 'starhugger)
 
 ;;; Helpers
 

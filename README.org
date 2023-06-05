@@ -1,4 +1,4 @@
-- Hugging Face/AI-powered text & code completion client (unoffical).
+- Hugging Face/AI-powered text & code completion client (unofficial).
 Currently supported model: [[https://huggingface.co/bigcode/starcoder]].
 
 - Demo [[https://www.reddit.com/r/emacs/comments/13l9cm1/starhuggerel_now_displays_suggestions_as_overlays/][(on Reddit)]]:

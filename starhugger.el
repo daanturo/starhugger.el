@@ -1,12 +1,26 @@
-;;; starhugger.el --- Hugging Face/AI-powered text & code completion client (unoffical)  -*- lexical-binding: t; -*-
+;;; starhugger.el --- Hugging Face/AI-powered text & code completion client  -*- lexical-binding: t; -*-
 
 ;; Version: 0.3.0
 ;; Package-Requires: ((emacs "28.2") (compat "29.1.4.0") (dash "2.18.0") (s "1.13.1") (spinner "1.7.4"))
 ;; Keywords: completion, convenience, languages
+;; Homepage: https://gitlab.com/daanturo/starhugger.el
+
+;; This program is free software: you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License as published by
+;; the Free Software Foundation, either version 3 of the License, or
+;; (at your option) any later version.
+
+;; This program is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+
+;; You should have received a copy of the GNU General Public License
+;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 ;;; Commentary:
 
-;; Client for AI-powered code completion(s).
+;; Hugging Face/AI-powered text & code completion client (unofficial).
 
 ;;; Code:
 
@@ -995,6 +1009,8 @@ cached, for the suggestion to appear."
       (unless (and (numberp beg) (numberp end) (<= beg (point) end))
         (starhugger-dismiss-suggestion)))))
 
+;; Dump the entire minor mode into the autoloads file, so that it
+;; can be enabled without having to load the whole package.
 ;;;###autoload
 (progn
 
