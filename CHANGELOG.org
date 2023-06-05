@@ -1,3 +1,8 @@
+* Version 0.3.0
+
+- Remove both ~starhugger-number-of-suggestions-to-fetch-interactively~ and ~starhugger-number-of-suggestions-to-fetch-automatically~ in favor of ~starhugger-numbers-of-suggestions-to-fetch~ which is a list of numbers.
+
+
 * Version 0.2.1
 
 - Introduce ~starhugger-enable-dumb-grep-context~.

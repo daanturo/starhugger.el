@@ -1,6 +1,6 @@
 ;; -*- lexical-binding: t; -*-
 
-;; Version: 0.2.1
+;; Version: 0.3.0-main
 ;; Package-Requires: ((emacs "28.2") (compat "29.1.4.0") (dash "2.18.0") (s "1.13.1") (spinner "1.7.4"))
 
 ;;; Commentary:
@@ -117,9 +117,12 @@ may cause unexpected behaviors."
 
 (defcustom starhugger-max-new-tokens nil
   "When a number, set it to max_new_tokens.
-See also `starhugger-additional-data-alist'."
+It can be a list of two natural numbers: the number of tokens to
+fetch when called automatically and the number of token to fetch
+when called interactively. See also
+`starhugger-additional-data-alist'."
   :group 'starhugger
-  :type 'sexp)
+  :type '(choice natnum (list natnum natnum)))
 
 (defun starhugger--json-serialize (object &rest args)
   "Like (`json-serialize' OBJECT @ARGS).
@@ -182,7 +185,11 @@ Additionally prevent errors about multi-byte characters."
   (propertize str 'face '(:foreground "yellow" :weight bold)))
 
 (cl-defun starhugger--record-generated (prompt parsed-response-list &key display parameters)
-  (-let* ((buf (get-buffer-create starhugger-generated-buffer)))
+  (-let* ((buf
+           (or (get-buffer starhugger-generated-buffer)
+               (prog1 (get-buffer-create starhugger-generated-buffer)
+                 (with-current-buffer starhugger-generated-buffer
+                   (setq-local outline-regexp "#\\*> "))))))
     (with-current-buffer buf
 
       (goto-char (point-max))
@@ -191,16 +198,19 @@ Additionally prevent errors about multi-byte characters."
       (insert prompt)
       (insert "\n\n")
 
-      (--each parsed-response-list
-        (insert
-         (starhugger--record-propertize
-          (format "#*> OUTPUT  #%d from API:" it-index)))
-        (insert "\n" it "\n\n"))
+      (if (zerop (length parsed-response-list))
+          (insert
+           (starhugger--record-propertize (format "#*> No OUTPUT from API!\n")))
+        (--each parsed-response-list
+          (insert
+           (starhugger--record-propertize
+            (format "#*> OUTPUT  #%d from API:" it-index)))
+          (insert "\n" it "\n\n")))
 
       (insert "\n\n\n"))
     (when display
       (save-selected-window
-        (pop-to-buffer starhugger-generated-buffer)))
+        (pop-to-buffer buf)))
     buf))
 
 (defcustom starhugger-strip-prompt-before-insert nil
@@ -302,7 +312,9 @@ It should return 2 different responses."
    :+options +options
    :+parameters +parameters))
 
-(cl-defun starhugger--query-internal (prompt callback &rest args &key display spin force-new num &allow-other-keys)
+(cl-defun starhugger--query-internal (prompt callback &rest args &key display
+                                             spin force-new num max-new-tokens
+                                             &allow-other-keys)
   "CALLBACK is called with the generated text list.
 PROMPT is the prompt to use. DISPLAY is whether to display the
 generated text in a buffer. SPIN is whether to show a spinner.
@@ -333,8 +345,7 @@ data to pass."
                    (funcall spin-obj))
                  (funcall callback gen-texts))
                :+options `(,@+options ,@dynm-options)
-               :+parameters `(,@(and starhugger-max-new-tokens
-                                     `((max_new_tokens . ,starhugger-max-new-tokens)))
+               :+parameters `(,@(and max-new-tokens `((max_new_tokens . ,max-new-tokens)))
                               ,@(and num `((num_return_sequences . ,num)))
                               ,@+parameters
                               ,@dynm-parameters)
@@ -416,19 +427,19 @@ When this minor mode is off, the overlay must not be shown."
     (unless starhugger-inlining-mode
       (starhugger-inlining-mode))))
 
-(defcustom starhugger-number-of-suggestions-to-fetch-interactively 3
-  "Positive natural number of suggestions to fetch interactively.
-Allow quickly previewing to a different one. Use for commands
-such as `starhugger-trigger-suggestion'.
+(defcustom starhugger-numbers-of-suggestions-to-fetch '(2 3)
+  "List of (natural) numbers of suggestions to fetch.
 
-Note that the model may return the same response repeatedly."
-  :group 'starhugger
-  :type 'sexp)
+The first number is the number of suggestions to fetch when
+`starhugger-trigger-suggestion' is called automatically.
 
-(defcustom starhugger-number-of-suggestions-to-fetch-automatically 2
-  "Positive natural number of suggestions to fetch when automatically."
+The second number is the number of suggestions to fetch when
+`starhugger-trigger-suggestion' is called interactively.
+
+It can also be a single number, in which case the first number
+is the same as the second number."
   :group 'starhugger
-  :type 'sexp)
+  :type '(choice natnum (list natnum natnum)))
 
 (defun starhugger--current-overlay-suggestion (&optional chop-stop-token)
   (-->
@@ -710,6 +721,19 @@ dependencies. Also remember to reduce
         (starhugger-grep-context--prefix-comments wrapped-callback)
       (funcall wrapped-callback ""))))
 
+(defun starhugger--get-from-num-or-list (num-or-list &optional idx)
+  (cond
+   ((null num-or-list)
+    nil)
+   ((numberp num-or-list)
+    num-or-list)
+   ((numberp idx)
+    (elt num-or-list idx))
+   (idx
+    (elt num-or-list 1))
+   (t
+    (elt num-or-list 0))))
+
 ;;;###autoload
 (cl-defun starhugger-trigger-suggestion (&key interact force-new num)
   "Show AI-powered code suggestions as overlays.
@@ -721,7 +745,11 @@ the newly fetched ones are appended silently). FORCE-NEW: try to
 fetch different responses. Non-nil INTERACT: show spinner."
   (interactive (list :interact t :force-new starhugger-inlining-mode))
   (-let*
-      ((num (or num starhugger-number-of-suggestions-to-fetch-interactively))
+      ((num
+        (or num
+            (starhugger--get-from-num-or-list
+             starhugger-numbers-of-suggestions-to-fetch
+             interact)))
        (call-buf (current-buffer))
        (pt0 (point))
        (state (starhugger--suggestion-state))
@@ -755,6 +783,8 @@ fetch different responses. Non-nil INTERACT: show spinner."
                                  (starhugger--ensure-inlininng-mode 0))))))))
                      :spin (or starhugger-debug interact)
                      :force-new (or force-new (< 1 fetch-time))
+                     :max-new-tokens (starhugger--get-from-num-or-list starhugger-max-new-tokens
+                                                                       interact)
                      :num num))))
               (funcall func 1))))))
     (starhugger--async-prompt callback)))
@@ -765,7 +795,9 @@ fetch different responses. Non-nil INTERACT: show spinner."
     (or (starhugger--try-show-most-recent-suggestion)
         (when (not cache-only)
           (starhugger-trigger-suggestion
-           :num starhugger-number-of-suggestions-to-fetch-automatically)))))
+           :num (starhugger--get-from-num-or-list
+                 starhugger-numbers-of-suggestions-to-fetch
+                 nil))))))
 
 (defun starhugger-dismiss-suggestion (&optional stop-fetching)
   "Clear current suggestion.
