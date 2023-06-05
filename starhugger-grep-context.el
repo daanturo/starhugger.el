@@ -45,6 +45,9 @@ Credit: `process-lines-handling-status'."
       (forward-line 1))
     (nreverse lines)))
 
+(defun starhugger--group-regexes (&rest regexes)
+  (--> (string-join regexes "|") (concat "(" it ")")))
+
 ;;; Dumb Grep/Regex-based project-wide code context
 
 (defun starhugger-grep-context--top-level-regex ()
@@ -54,15 +57,19 @@ May still include script statements."
     (-->
      `(,(concat
          "^[a-zA-Z]" ; begin with an alphabetic character
-         "[^=]*?" ; some characters before "(", but they can't be some
-         "[(]" ; function indicator
-         ".*?[^\"',;.]$" ; doesn't end with those, cause it looks more like a natural sentence
-         )
+         (starhugger--group-regexes
+          (concat
+           "[^=}]*?"; some characters before "(", but they can't be some
+           "\\("    ; literal "("
+           ".*?[^\"',;.]$" ; doesn't end with those, cause it looks more like a natural sentence
+           )
+          ;; Function expression assignments
+          "[[:alnum:]_ \t]*=[ \t]*\\(.*?\\)[^{]*\\{$"))
        ;; C macros
        "^#define "
        ;; lisp
        "^\\(([-a-z]+-)?def")
-     (string-join it "|") (concat "(" it ")"))))
+     (apply #'starhugger--group-regexes it))))
 
 (defun starhugger-grep-context--non-top-level-def-regex ()
   "Return an Rust regex to catch non-top-level definitions."
