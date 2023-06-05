@@ -1,7 +1,7 @@
 An unfancy Emacs extension for [[https://huggingface.co/bigcode/starcoder]] integration.
 
 
-Demo: [[https://www.reddit.com/r/emacs/comments/13l9cm1/starhuggerel_now_displays_suggestions_as_overlays/][Reddit]].
+Demo:
 
 
 Repository: [[https://gitlab.com/daanturo/starhugger.el]]
