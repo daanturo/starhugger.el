@@ -15,25 +15,48 @@
 (require 'dash)
 (require 'compat)
 
+;;;; Helpers
+
+(cl-defmacro starhugger--with-buffer-scrolling (buffer-or-name &rest body)
+  "Execute the forms in BODY with BUFFER-OR-NAME temporarily current.
+Like `with-current-buffer', but allow scrolling the visible
+window of BUFFER-OR-NAME when at the buffer end, if any."
+  (declare (debug t) (indent defun))
+  `(-let* ((wd (get-buffer-window ,buffer-or-name t)))
+     (cond
+      (wd
+       (with-selected-window wd
+         ;; disallow scrolling when visibly not at end of buffer
+         (-let* ((eob-flag (eobp))
+                 (pt0 (point)))
+           (unwind-protect
+               (progn
+                 ,@body)
+             (unless eob-flag
+               (goto-char pt0))))))
+      (t
+       (with-current-buffer ,buffer-or-name
+         ,@body)))))
+
 ;;;; Making requests
 
 (defcustom starhugger-api-token nil
-  "Hugging Face user access tokens.
+  "Hugging Face user access token.
 Generate yours at URL `https://huggingface.co/settings/tokens'.
 Can be either a direct string, or a function to be called with no
-arguments that returns a string. When being a function, it have
-to be fast to return.
+arguments that returns a string. When being a function, it has to
+be fast to return.
 
-Note: it must be a unibyte string, ensure that before setting
-dynamically with (`encode-coding-string' ... \\='utf-8)."
+Note: the (returned) string must be unibyte, ensure that before
+dynamically setting with (`encode-coding-string' ... \\='utf-8)."
   :group 'starhugger
-  :type '(choice symbol string function))
+  :type '(choice string function))
 
 (defcustom starhugger-model-api-endpoint-url
   "https://api-inference.huggingface.co/models/bigcode/starcoder"
-  "End point URL to make HTTP request."
+  "End point URL to make HTTP requests."
   :group 'starhugger
-  :type 'sexp)
+  :type 'string)
 
 (defun starhugger--get-all-generated-texts (str)
   (-let* ((parsed (json-parse-string str :object-type 'alist))
@@ -47,34 +70,27 @@ dynamically with (`encode-coding-string' ... \\='utf-8)."
 (defcustom starhugger-generated-buffer (format "*%s*" 'starhugger)
   "Buffer name to log parsed responses."
   :group 'starhugger
-  :type 'sexp)
-
-(defcustom starhugger-log-buffer (format " *%s-log*" 'starhugger)
-  "Buffer name to log things, hidden by default."
-  :group 'starhugger
-  :type 'sexp)
-
-(defcustom starhugger-log-time "(%F %T) "
-  "Whether to insert this time format before each entry in the log buffer."
-  :group 'starhugger
-  :type 'sexp)
+  :type 'string)
 
 (defcustom starhugger-max-prompt-length (* 1024 8)
-  "Max length of the prompt to send.
+  "Max length of the code in current buffer to send.
 Doesn't count fills tokens and maybe the context."
   :group 'starhugger
-  :type 'sexp)
+  :type 'natnum)
+
+
+(defvar starhugger--log-buffer (format " *%s-log*" 'starhugger)
+  "Buffer name to log things, hidden by default.")
 
 (defun starhugger--log (&rest args)
-  (unless (get-buffer starhugger-log-buffer)
-    (with-current-buffer (get-buffer-create starhugger-log-buffer)
+  (unless (get-buffer (format " *%s-log*" 'starhugger))
+    (with-current-buffer (get-buffer-create starhugger--log-buffer)
       (read-only-mode)))
-  (with-current-buffer starhugger-log-buffer
+  (with-current-buffer starhugger--log-buffer
     (-let* ((pt0 (and (not (eobp)) (point))))
       (dlet ((inhibit-read-only t))
         (goto-char (point-max))
-        (when starhugger-log-time
-          (insert (format-time-string starhugger-log-time)))
+        (insert (format-time-string "(%F %T) "))
         (dolist (obj (-interpose " " args))
           (insert (format "%s" obj)))
         (insert "\n")
@@ -92,9 +108,9 @@ Doesn't count fills tokens and maybe the context."
   (spinner-start 'starhugger 3))
 
 (defcustom starhugger-enable-spinner t
-  "Show spinner when fetching."
+  "Show spinner when fetching interactively."
   :group 'starhugger
-  :type 'sexp)
+  :type 'boolean)
 
 ;; WHY isn't this documented?!
 (defvar url-http-end-of-headers)
@@ -113,7 +129,7 @@ for parameters. Note that this packages is built around the
 parameter \"return_full_text\" being false, setting it otherwise
 may cause unexpected behaviors."
   :group 'starhugger
-  :type 'sexp)
+  :type 'alist)
 
 (defcustom starhugger-max-new-tokens nil
   "When a number, set it to max_new_tokens.
@@ -160,7 +176,7 @@ Additionally prevent errors about multi-byte characters."
                           (funcall starhugger-api-token)))
                       `(("Authorization" . ,(format "Bearer %s" it))))))))
       (when starhugger-debug
-        (dlet ((starhugger-log-buffer " *starhugger sent request data"))
+        (dlet ((starhugger--log-buffer " *starhugger sent request data"))
           (starhugger--log data)))
       (url-retrieve
        starhugger-model-api-endpoint-url
@@ -189,8 +205,9 @@ Additionally prevent errors about multi-byte characters."
            (or (get-buffer starhugger-generated-buffer)
                (prog1 (get-buffer-create starhugger-generated-buffer)
                  (with-current-buffer starhugger-generated-buffer
-                   (setq-local outline-regexp "#\\*> "))))))
-    (with-current-buffer buf
+                   (setq-local outline-regexp "#\\*> ")
+                   (setq-local window-point-insertion-type t))))))
+    (starhugger--with-buffer-scrolling buf
 
       (goto-char (point-max))
       (insert (starhugger--record-propertize "#*> INPUT to API: "))
@@ -198,10 +215,10 @@ Additionally prevent errors about multi-byte characters."
       (insert prompt)
       (insert "\n\n")
 
-      (if (zerop (length parsed-response-list))
+      (if (equal parsed-response-list '())
           (insert
            (starhugger--record-propertize (format "#*> No OUTPUT from API!\n")))
-        (--each parsed-response-list
+        (--each (ensure-list parsed-response-list)
           (insert
            (starhugger--record-propertize
             (format "#*> OUTPUT  #%d from API:" it-index)))
@@ -217,17 +234,17 @@ Additionally prevent errors about multi-byte characters."
   "Whether to remove the prompt in the parsed response before inserting.
 Enable this when the return_full_text parameter isn't honored."
   :group 'starhugger
-  :type 'sexp)
+  :type 'boolean)
 
 (defcustom starhugger-stop-token "<|endoftext|>"
   "End of sentence token."
   :group 'starhugger
-  :type 'sexp)
+  :type 'string)
 
 (defcustom starhugger-chop-stop-token t
   "Whether to remove `starhugger-stop-token' before inserting."
   :group 'starhugger
-  :type 'sexp)
+  :type 'boolean)
 
 (defcustom starhugger-fill-tokens
   '("<fim_prefix>" "<fim_suffix>" "<fim_middle>")
@@ -235,7 +252,7 @@ Enable this when the return_full_text parameter isn't honored."
 See
 https://github.com/huggingface/huggingface-vscode/blob/73818334f4939c2f19480a404f74944a47933a12/src/runCompletion.ts#L66"
   :group 'starhugger
-  :type 'sexp)
+  :type '(list string string string))
 
 (defcustom starhugger-fill-in-the-middle t
   "Enable using code from both before and after point as prompt.
@@ -243,12 +260,12 @@ Unless just before the buffer end's trailing newlines (if any),
 in that case don't use fill mode. See `starhugger-fill-tokens'
 for the relevant tokens."
   :group 'starhugger
-  :type 'sexp)
+  :type 'boolean)
 
 (defcustom starhugger-prompt-after-point-fraction (/ 1.0 4)
   "The length fraction that code after point should take in the prompt."
   :group 'starhugger
-  :type 'sexp)
+  :type 'float)
 
 (defun starhugger-turn-off-completion-in-region-mode ()
   "Use this when inserting parsed response.
@@ -270,11 +287,12 @@ To test if the model honors use_cache = false, run this twice in the shell:
 curl https://api-inference.huggingface.co/models/bigcode/starcoder \\
     -X POST \\
     -H \"Content-Type: application/json\" \\
-    -d '{\"options\": {\"use_cache\": false},\"inputs\": \"ping!\"}'
+    -d \\='{\"options\": {\"use_cache\": false}, \"parameters\": {\"num_return_sequences\": 2},\"inputs\": \"ping!\"}\\='
 
-It should return 2 different responses."
+It should return 2 different responses, each with 2
+\"generated_text\"."
   :group 'starhugger
-  :type 'sexp)
+  :type '(list float float))
 
 (defvar-local starhugger-query--last-prompt nil)
 
@@ -387,13 +405,13 @@ Recent suggestions are added to the beginning.")
 Note that this includes all recently fetched suggestions so not
 all of them are relevant all the time."
   :group 'starhugger
-  :type 'sexp)
+  :type 'natnum)
 
 
 (defcustom starhugger-dismiss-suggestion-after-change t
   "Whether to clear the overlay when text changes and not partially accepted."
   :group 'starhugger
-  :type 'sexp)
+  :type 'boolean)
 
 (defvar-local starhugger--inline-inhibit-changing-overlay nil)
 
@@ -814,7 +832,7 @@ unfinished fetches."
 (defcustom starhugger-trigger-suggestion-after-accepting t
   "Whether to continue triggering suggestion after accepting."
   :group 'starhugger
-  :type 'sexp)
+  :type 'boolean)
 
 (defun starhugger--accept-suggestion-partially (by &optional args)
   "Insert a part of active suggestion by the function BY.
@@ -941,12 +959,12 @@ Note that the time taken to fetch isn' instantaneous, so we have
 to wait more after this unless the suggestion(s) is already
 cached, for the suggestion to appear."
   :group 'starhugger
-  :type 'sexp)
+  :type 'float)
 
 (defcustom starhugger-auto-dismiss-when-move-out t
   "Whether to dismiss suggestion when moving point outside."
   :group 'starhugger
-  :type 'sexp)
+  :type 'boolean)
 
 (defvar-local starhugger--auto-timer nil)
 

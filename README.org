@@ -2,6 +2,9 @@ An unfancy Emacs extension for [[https://huggingface.co/bigcode/starcoder]] inte
 
 Demo: [[https://www.reddit.com/r/emacs/comments/13l9cm1/starhuggerel_now_displays_suggestions_as_overlays/][Reddit]].
 
+Repository: [[https://gitlab.com/daanturo/starhugger.el]]
+(Maybe not up to date) Mirror: [[https://github.com/daanturo/starhugger.el]]
+
 * Installation
 
 Add one of those to your configuration.
@@ -153,4 +156,4 @@ Emacs overlays are used under the hood to display inline suggestion, there are s
 
 - ? How about Transformers Agents [[https://huggingface.co/docs/transformers/transformers_agents]]?
 
-- ½ Find a way to take other files into account [[https://thakkarparth007.github.io/copilot-explorer/posts/copilot-internals.html][Copilot Internals | thakkarparth007.github.io]]: current experimental implementation isn't as sophisticated, just a dumb grep - regex hellish madness on the codebase to find "relevant" symbols (again, relevancy is measure by naive string similarities, nothing "AI" here); also the syntax to expose inter-file context isn't known yet, I made up using comments
+- ½ Find a way to take other files into account [[https://thakkarparth007.github.io/copilot-explorer/posts/copilot-internals.html][Copilot Internals | thakkarparth007.github.io]]: current experimental implementation isn't as sophisticated, just a dumb grep - regex hellish madness on the codebase to find "relevant" symbols (again, relevancy is measure by naive line similarities to the current file name, no semantic analysis or AI involved here); also the syntax to expose inter-file context isn't known yet, I made up using comments
