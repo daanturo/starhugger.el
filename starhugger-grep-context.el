@@ -45,8 +45,8 @@ Credit: `process-lines-handling-status'."
       (forward-line 1))
     (nreverse lines)))
 
-(defun starhugger--group-regexes (&rest regexes)
-  (--> (string-join regexes "|") (concat "(" it ")")))
+(eval-and-compile (defun starhugger--group-regexes (&rest regexes)
+                    (--> (string-join regexes "|") (concat "(" it ")"))))
 
 ;;; Dumb Grep/Regex-based project-wide code context
 
