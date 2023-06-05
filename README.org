@@ -1,7 +1,11 @@
 An unfancy Emacs extension for [[https://huggingface.co/bigcode/starcoder]] integration.
 
 
-Demo: [[https://www.reddit.com/r/emacs/comments/13l9cm1/starhuggerel_now_displays_suggestions_as_overlays/][Reddit]].
+Demo [[https://www.reddit.com/r/emacs/comments/13l9cm1/starhuggerel_now_displays_suggestions_as_overlays/][(on Reddit)]]:
+
+https://github.com/daanturo/starhugger.el/assets/32123754/5ff826ad-5644-4b15-a811-ad8f3fc78979
+
+#+html: <figure class="video_container"> <video controls="true" allowfullscreen="true"> <source src="https://github-production-user-asset-6210df.s3.amazonaws.com/32123754/243393264-5b6472da-d409-4e68-a7b7-d2d108f07c2e.webm" type="video/webm"> </video> </figure>
 
 
 Repository: [[https://gitlab.com/daanturo/starhugger.el]]
@@ -54,17 +58,17 @@ There is also ~starhugger-auto-mode~ (non-global minor mode) but its usage isn't
 
 #+begin_src elisp
 
-(keymap-global-set "M-\\" #'starhugger-trigger-suggestion)
+(global-set-key (kbd "M-\\") #'starhugger-trigger-suggestion)
 
 (with-eval-after-load 'starhugger
 
   (setq starhugger-api-token "hf_ your token here")
 
   ;; `starhugger-inline-menu-item' makes a conditional binding that is only active at the inline suggestion start
-  (keymap-set starhugger-inlining-mode-map "TAB" (starhugger-inline-menu-item #'starhugger-accept-suggestion))
-  (keymap-set starhugger-inlining-mode-map "M-[" (starhugger-inline-menu-item #'starhugger-show-prev-suggestion))
-  (keymap-set starhugger-inlining-mode-map "M-]" (starhugger-inline-menu-item #'starhugger-show-next-suggestion))
-  (keymap-set starhugger-inlining-mode-map "M-f" (starhugger-inline-menu-item #'starhugger-accept-suggestion-by-word)))
+  (define-key starhugger-inlining-mode-map (kbd "TAB") (starhugger-inline-menu-item #'starhugger-accept-suggestion))
+  (define-key starhugger-inlining-mode-map (kbd "M-[") (starhugger-inline-menu-item #'starhugger-show-prev-suggestion))
+  (define-key starhugger-inlining-mode-map (kbd "M-]") (starhugger-inline-menu-item #'starhugger-show-next-suggestion))
+  (define-key starhugger-inlining-mode-map (kbd "M-f") (starhugger-inline-menu-item #'starhugger-accept-suggestion-by-word)))
 
 #+end_src
 
