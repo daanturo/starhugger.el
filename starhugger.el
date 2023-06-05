@@ -201,29 +201,39 @@ Additionally prevent errors about multi-byte characters."
 (defun starhugger--record-propertize (str)
   (propertize str 'face '(:foreground "yellow" :weight bold)))
 
+(defvar starhugger--record-heading-beg "#*> ")
+
 (cl-defun starhugger--record-generated (prompt parsed-response-list &key display parameters)
   (-let* ((buf
            (or (get-buffer starhugger-generated-buffer)
                (prog1 (get-buffer-create starhugger-generated-buffer)
                  (with-current-buffer starhugger-generated-buffer
-                   (setq-local outline-regexp "#\\*> ")
+                   (setq-local outline-regexp
+                               (regexp-quote starhugger--record-heading-beg))
                    (setq-local window-point-insertion-type t))))))
-    (starhugger--with-buffer-scrolling buf
+    (starhugger--with-buffer-scrolling
+      buf
 
       (goto-char (point-max))
-      (insert (starhugger--record-propertize "#*> INPUT to API: "))
-      (insert (format "(with parameters %s)" parameters) "\n\n")
+      (insert
+       (starhugger--record-propertize
+        (concat starhugger--record-heading-beg "INPUT to API: ")))
+      (insert (format "(with parameters: %s)" parameters) "\n\n")
       (insert prompt)
       (insert "\n\n")
 
       (if (equal parsed-response-list '())
           (insert
-           (starhugger--record-propertize (format "#*> No OUTPUT from API!\n")))
-        (--each (ensure-list parsed-response-list)
-          (insert
            (starhugger--record-propertize
-            (format "#*> OUTPUT  #%d from API:" it-index)))
-          (insert "\n" it "\n\n")))
+            (concat starhugger--record-heading-beg "OUTPUT from API: None!\n")))
+        (-let* ((lst (ensure-list parsed-response-list)))
+          (--each lst
+            (insert
+             (starhugger--record-propertize
+              (format
+               (concat starhugger--record-heading-beg "OUTPUT #%d/%d from API:")
+               (+ 1 it-index) (length lst))))
+            (insert "\n" it "\n\n"))))
 
       (insert "\n\n\n"))
     (when display
@@ -295,8 +305,6 @@ It should return 2 different responses, each with 2
   :group 'starhugger
   :type '(list float float))
 
-(defvar-local starhugger-query--last-prompt nil)
-
 (defun starhugger--data-for-different-response ()
   (if (and (listp starhugger-retry-temperature-range)
            (not (seq-empty-p starhugger-retry-temperature-range)))
@@ -319,15 +327,15 @@ It should return 2 different responses, each with 2
                     (starhugger--get-all-generated-texts returned)
                   (error (message "Error: %S" err) 'error)))
                (error-flag (equal gen-texts-or-error 'error)))
-         (unless error-flag
-           (funcall callback gen-texts-or-error))
          (starhugger--record-generated
           prompt
           (if error-flag
               returned
             gen-texts-or-error)
           :display display
-          :parameters `((options . ,+options) (parameters . ,+parameters))))))
+          :parameters `((options . ,+options) (parameters . ,+parameters)))
+         (unless error-flag
+           (funcall callback gen-texts-or-error)))))
    :+options +options
    :+parameters +parameters))
 
@@ -706,16 +714,6 @@ dependencies. Also remember to reduce
   :group 'starhugger
   :type 'boolean)
 
-(defun starhugger--prompt ()
-  "Build the prompt to send to the model."
-  (-let* (([pre-compon suf-compon] (starhugger--prompt-build-components))
-          ((pre-token mid-token suf-token) starhugger-fill-tokens))
-    (cond
-     (suf-compon
-      (concat pre-token pre-compon mid-token suf-compon suf-token))
-     (t
-      pre-compon))))
-
 (declare-function starhugger-grep-context--prefix-comments
                   "starhugger-grep-context")
 
@@ -1014,6 +1012,40 @@ cached, for the suggestion to appear."
 
   ;;
   )
+
+;;;; Other commands
+
+(defcustom starhugger-send-max-new-tokens 256
+  "\"max_new_tokens\" for `starhugger-send'."
+  :group 'starhugger
+  :type 'natnum)
+
+;;;###autoload
+(defun starhugger-send (prompt &optional force-new)
+  "Send PROMPT to the model without any contexts and display the answer.
+Note this command is just a proof of concept, unlike a proper
+chatbot, there are no contexts (including previous inputs) taken
+into consideration.
+
+Non-nil FORCE-NEW (interactively, prefix argument): try to force
+a new answer."
+  (interactive (list
+                (read-string "Input: "
+                             (and (use-region-p)
+                                  (buffer-substring-no-properties
+                                   (region-beginning) (region-end))))
+                current-prefix-arg))
+  (starhugger--query-internal
+   prompt
+   (lambda (&rest _)
+     (with-selected-window (get-buffer-window starhugger-generated-buffer t)
+       (goto-char (point-max))
+       (search-backward (concat starhugger--record-heading-beg "INPUT"))
+       (recenter 0)))
+   :max-new-tokens starhugger-send-max-new-tokens
+   :force-new force-new
+   :display t
+   :spin t))
 
 ;;; starhugger.el ends here
 

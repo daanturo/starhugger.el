@@ -2,6 +2,9 @@
 
 - Remove both ~starhugger-number-of-suggestions-to-fetch-interactively~ and ~starhugger-number-of-suggestions-to-fetch-automatically~ in favor of ~starhugger-numbers-of-suggestions-to-fetch~ which is a list of numbers.
 
+- Remove ~starhugger-complete~, ~starhugger-complete*~, ~starhugger-query~.
+
+- Introduce ~starhugger-send~.
 
 * Version 0.2.1
 
