@@ -1,14 +1,10 @@
-An unfancy Emacs extension for [[https://huggingface.co/bigcode/starcoder]] integration.
+- Hugging Face/AI-powered text & code completion client (unoffical).
+Currently supported model: [[https://huggingface.co/bigcode/starcoder]].
 
-
-Demo [[https://www.reddit.com/r/emacs/comments/13l9cm1/starhuggerel_now_displays_suggestions_as_overlays/][(on Reddit)]]:
-
+- Demo [[https://www.reddit.com/r/emacs/comments/13l9cm1/starhuggerel_now_displays_suggestions_as_overlays/][(on Reddit)]]:
 https://github.com/daanturo/starhugger.el/assets/32123754/5ff826ad-5644-4b15-a811-ad8f3fc78979
 
-#+html: <figure class="video_container"> <video controls="true" allowfullscreen="true"> <source src="https://github-production-user-asset-6210df.s3.amazonaws.com/32123754/243393264-5b6472da-d409-4e68-a7b7-d2d108f07c2e.webm" type="video/webm"> </video> </figure>
-
-
-Repository: [[https://gitlab.com/daanturo/starhugger.el]]
+- Repository: [[https://gitlab.com/daanturo/starhugger.el]]
 
 (Maybe not up to date) Mirror: [[https://github.com/daanturo/starhugger.el]]
 
