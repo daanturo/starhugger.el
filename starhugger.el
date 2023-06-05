@@ -59,8 +59,8 @@ window of BUFFER-OR-NAME when at the buffer end, if any."
   "Hugging Face user access token.
 Generate yours at URL `https://huggingface.co/settings/tokens'.
 Can be either a direct string, or a function to be called with no
-arguments that returns a string. When being a function, it has to
-be fast to return.
+arguments that returns a string.  When being a function, it has
+to be fast to return.
 
 Note: the (returned) string must be unibyte, ensure that before
 dynamically setting with (`encode-coding-string' ... \\='utf-8)."
@@ -150,7 +150,7 @@ may cause unexpected behaviors."
   "When a number, set it to max_new_tokens.
 It can be a list of two natural numbers: the number of tokens to
 fetch when called automatically and the number of token to fetch
-when called interactively. See also
+when called interactively.  See also
 `starhugger-additional-data-alist'."
   :group 'starhugger
   :type '(choice natnum (list natnum natnum)))
@@ -282,7 +282,7 @@ https://github.com/huggingface/huggingface-vscode/blob/73818334f4939c2f19480a404
 (defcustom starhugger-fill-in-the-middle t
   "Enable using code from both before and after point as prompt.
 Unless just before the buffer end's trailing newlines (if any),
-in that case don't use fill mode. See `starhugger-fill-tokens'
+in that case don't use fill mode.  See `starhugger-fill-tokens'
 for the relevant tokens."
   :group 'starhugger
   :type 'boolean)
@@ -357,12 +357,12 @@ It should return 2 different responses, each with 2
                                              spin force-new num max-new-tokens
                                              &allow-other-keys)
   "CALLBACK is called with the generated text list.
-PROMPT is the prompt to use. DISPLAY is whether to display the
-generated text in a buffer. SPIN is whether to show a spinner.
-FORCE-NEW is whether to force a new request. NUM is the number of
-responses to return. ARGS are the arguments to pass to
-`starhugger--request'. See `starhugger--request' for the other
-arguments. See `starhugger-additional-data-alist' for additional
+PROMPT is the prompt to use.  DISPLAY is whether to display the
+generated text in a buffer.  SPIN is whether to show a spinner.
+FORCE-NEW is whether to force a new request.  NUM is the number
+of responses to return.  ARGS are the arguments to pass to
+`starhugger--request'.  See `starhugger--request' for the other
+arguments.  See `starhugger-additional-data-alist' for additional
 data to pass."
   (-let* ((call-buf (current-buffer))
           (spin-obj
@@ -569,7 +569,7 @@ See `starhugger-inline-menu-item'."
 
 (defun starhugger-inline-menu-item (cmd)
   "Return a CMD when only at the start of suggestion at run-time.
-Use this when binding keys. See info node `(elisp) Extended Menu
+Use this when binding keys.  See info node `(elisp) Extended Menu
 Items'."
   `(menu-item "" ,cmd nil :filter starhugger-at-suggestion-beg-p))
 
@@ -723,7 +723,7 @@ prompt."
 (defcustom starhugger-enable-dumb-grep-context nil
   "Whether to inject a dumb grep-based project-wide context to the prompt.
 Experimental! This requires ripgrep and python3 as hard
-dependencies. Also remember to reduce
+dependencies.  Also remember to reduce
 `starhugger-max-prompt-length' if you enable this."
   :group 'starhugger
   :type 'boolean)
@@ -770,10 +770,10 @@ dependencies. Also remember to reduce
   "Show AI-powered code suggestions as overlays.
 When an inline suggestion is already showing, new suggestions
 will be fetched, you can switch to them by calling
-`starhugger-show-next-suggestion' after fetching finishes. NUM:
+`starhugger-show-next-suggestion' after fetching finishes.  NUM:
 number of suggestions to fetch at once (actually sequentially,
-the newly fetched ones are appended silently). FORCE-NEW: try to
-fetch different responses. Non-nil INTERACT: show spinner."
+the newly fetched ones are appended silently).  FORCE-NEW: try to
+fetch different responses.  Non-nil INTERACT: show spinner."
   (interactive (list :interact t :force-new starhugger-inlining-mode))
   (-let*
       ((num
@@ -850,7 +850,7 @@ unfinished fetches."
 (defun starhugger--accept-suggestion-partially (by &optional args)
   "Insert a part of active suggestion by the function BY.
 Accept the part that is before the point after applying BY on
-ARGS. Note that BY should be `major-mode' dependant."
+ARGS.  Note that BY should be `major-mode' dependant."
   (-when-let* ((pos (overlay-start starhugger--overlay)))
     (dlet ((starhugger--inline-inhibit-changing-overlay t))
       (goto-char pos)
