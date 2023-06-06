@@ -1,7 +1,7 @@
 - Hugging Face/AI-powered text & code completion client (unofficial).
 Currently supported model: [[https://huggingface.co/bigcode/starcoder]].
 
-- Demo [[https://www.reddit.com/r/emacs/comments/13l9cm1/starhuggerel_now_displays_suggestions_as_overlays/][(on Reddit)]]:
+- [[https://github.com/daanturo/starhugger.el/assets/32123754/5ff826ad-5644-4b15-a811-ad8f3fc78979][Demo]]:
 https://github.com/daanturo/starhugger.el/assets/32123754/5ff826ad-5644-4b15-a811-ad8f3fc78979
 
 - Repository: [[https://gitlab.com/daanturo/starhugger.el]]
@@ -39,7 +39,7 @@ The performance may not be great, but they are asynchronous so Emacs won't be bl
 
 ** Primary commands
 
-- Previewing overlay: ~starhugger-trigger-suggestion~ will show the suggestion.
+- Previewing overlay: ~starhugger-trigger-suggestion~ will display the suggestion.
 
 ~M-x~ ~starhugger-show-next-suggestion~ and ~starhugger-show-prev-suggestion~ to cycle suggestions.
 

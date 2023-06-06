@@ -1,6 +1,6 @@
 ;;; starhugger.el --- Hugging Face/AI-powered text & code completion client  -*- lexical-binding: t; -*-
 
-;; Version: 0.3.0
+;; Version: 0.3.1-git
 ;; Package-Requires: ((emacs "28.2") (compat "29.1.4.0") (dash "2.18.0") (s "1.13.1") (spinner "1.7.4"))
 ;; Keywords: completion, convenience, languages
 ;; Homepage: https://gitlab.com/daanturo/starhugger.el
@@ -940,7 +940,6 @@ With prefix argument DELTA, show the suggestion that is DELTA away."
   (interactive "p")
   (starhugger-show-prev-suggestion (- delta)))
 
-;;;###autoload
 (defun starhugger-show-fetched-suggestions (&optional all)
   "Display fetched suggestions at point, or ALL positions.
 Note that the number of suggestions are limited by
@@ -963,6 +962,11 @@ Note that the number of suggestions are limited by
     (erase-buffer)
     (insert (string-join suggestions* "\n\n\n\n"))
     (read-only-mode 1)))
+
+(defun starhugger-goto-suggestion ()
+  (interactive)
+  (goto-char (overlay-start starhugger--overlay)))
+
 
 ;;;; Auto-mode
 
