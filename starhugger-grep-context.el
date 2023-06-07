@@ -1,13 +1,20 @@
-;; -*- lexical-binding: t; -*-
+;;; starhugger-grep-context.el --- Get project-wide context by dumb grepping  -*- lexical-binding: t; -*-
+
+
+;;; Commentary:
+;; 
+
+;;; Code:
 
 (require 'cl-macs)
 (require 'dash)
+(require 'compat)
 
 (require 'project)
 
 (require 'starhugger)
 
-;;; Helpers
+;;;; Helpers
 
 (defun starhugger--project-root ()
   (-some--> (project-current) (project-root it)))
@@ -48,7 +55,7 @@ Credit: `process-lines-handling-status'."
 (eval-and-compile (defun starhugger--group-regexes (&rest regexes)
                     (--> (string-join regexes "|") (concat "(" it ")"))))
 
-;;; Dumb Grep/Regex-based project-wide code context
+;;;; Dumb Grep/Regex-based project-wide code context
 
 (defun starhugger-grep-context--top-level-regex ()
   "Return a Rust regex for top-level definitions.
