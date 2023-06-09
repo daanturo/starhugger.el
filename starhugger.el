@@ -225,31 +225,31 @@ Additionally prevent errors about multi-byte characters."
                    (setq-local outline-regexp
                                (regexp-quote starhugger--record-heading-beg))
                    (setq-local window-point-insertion-type t))))))
-    (starhugger--with-buffer-scrolling
-      buf
+    (starhugger--with-buffer-scrolling buf
+      (dlet ((inhibit-read-only t))
 
-      (goto-char (point-max))
-      (insert
-       (starhugger--record-propertize
-        (concat starhugger--record-heading-beg "INPUT to API: ")))
-      (insert (format "(with parameters: %s)" parameters) "\n\n")
-      (insert prompt)
-      (insert "\n\n")
+        (goto-char (point-max))
+        (insert
+         (starhugger--record-propertize
+          (concat starhugger--record-heading-beg "INPUT to API: ")))
+        (insert (format "(with parameters: %s)" parameters) "\n\n")
+        (insert prompt)
+        (insert "\n\n")
 
-      (if (equal parsed-response-list '())
-          (insert
-           (starhugger--record-propertize
-            (concat starhugger--record-heading-beg "OUTPUT from API: None!\n")))
-        (-let* ((lst (ensure-list parsed-response-list)))
-          (--each lst
+        (if (equal parsed-response-list '())
             (insert
              (starhugger--record-propertize
-              (format
-               (concat starhugger--record-heading-beg "OUTPUT #%d/%d from API:")
-               (+ 1 it-index) (length lst))))
-            (insert "\n" it "\n\n"))))
+              (concat starhugger--record-heading-beg "OUTPUT from API: None!\n")))
+          (-let* ((lst (ensure-list parsed-response-list)))
+            (--each lst
+              (insert
+               (starhugger--record-propertize
+                (format
+                 (concat starhugger--record-heading-beg "OUTPUT #%d/%d from API:")
+                 (+ 1 it-index) (length lst))))
+              (insert "\n" it "\n\n"))))
 
-      (insert "\n\n\n"))
+        (insert "\n\n\n")))
     (when display
       (save-selected-window
         (pop-to-buffer buf)))

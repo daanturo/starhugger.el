@@ -1,5 +1,5 @@
 - Hugging Face/AI-powered text & code completion client (unofficial).
-Currently supported model: [[https://huggingface.co/bigcode/starcoder]].
+Currently supported model(s): [[https://huggingface.co/bigcode/starcoder]] (and its compatible variants).
 
 - [[https://github.com/daanturo/starhugger.el/assets/32123754/5ff826ad-5644-4b15-a811-ad8f3fc78979][Demo]]:
 https://github.com/daanturo/starhugger.el/assets/32123754/5ff826ad-5644-4b15-a811-ad8f3fc78979
@@ -55,6 +55,10 @@ There is also ~starhugger-auto-mode~ (non-global minor mode) but its usage isn't
 #+begin_src elisp
 
 (global-set-key (kbd "M-\\") #'starhugger-trigger-suggestion)
+
+;; Use https://huggingface.co/bigcode/starcoderplus instead
+(setq starhugger-model-api-endpoint-url
+      "https://api-inference.huggingface.co/models/bigcode/starcoderplus")
 
 (with-eval-after-load 'starhugger
 
@@ -138,25 +142,21 @@ Emacs overlays are used under the hood to display inline suggestion, there are s
 
 * TODO
 
-- ✓ Support setting parameters at [[https://huggingface.co/docs/api-inference/detailed_parameters#text-generation-task]]
+- ✓ Support setting parameters at [[https://huggingface.co/docs/api-inference/detailed_parameters#text-generation-task]].
 
-- ✓ VSCode-like previewing overlays: take after [[https://github.com/zerolfx/copilot.el]]
+- ✓ VSCode-like previewing overlays: take after [[https://github.com/zerolfx/copilot.el]].
 
-- ✓ Accept suggestion partially by words or lines
+- ✓ Let ~starhugger-trigger-suggestion~ fetch about 3 suggestions to quickly cycle.
 
-- ✓ Let ~starhugger-trigger-suggestion~ fetch about 3 suggestions to quickly cycle
+- ✓ Fill-in-the-middle support  [[https://github.com/huggingface/huggingface-vscode]]: <fim_prefix>〈code before〉<fim_suffix>〈code after〉<fim_middle>.
 
-- ✓ Fill-in-the-middle support  [[https://github.com/huggingface/huggingface-vscode]]: <fim_prefix>〈code before〉<fim_suffix>〈code after〉<fim_middle>
+- ? More robust and reliable method to show a different suggestion.
 
-- ? More robust and reliable method to show a different suggestion
-
-- ½ /Batch-previewing multiple suggestions, maybe with syntax highlighting/
-
-- ✓ Unaccept suggestion partially (by moving real text back to suggestion)
+- ½ /Batch-previewing multiple suggestions, maybe with syntax highlighting/.
 
 - ½ Support for auto-completing when typing: investigate Emacs's built-in ~completion-at-point-functions~'s asynchronous capabilities, or another framework?
-  Current implementation: ~starhugger-auto-mode~ using overlays
+  Current implementation: ~starhugger-auto-mode~ using overlays.
 
 - ? How about Transformers Agents [[https://huggingface.co/docs/transformers/transformers_agents]]?
 
-- ½ Find a way to take other files into account [[https://thakkarparth007.github.io/copilot-explorer/posts/copilot-internals.html][Copilot Internals | thakkarparth007.github.io]]: current experimental implementation isn't as sophisticated, just a dumb grep - regex hellish madness on the codebase to find "relevant" symbols (again, relevancy is measure by naive line similarities to the current file name, no semantic analysis or AI involved here); also the syntax to expose inter-file context isn't known yet, I made up using comments
+- ½ Find a way to take other files into account [[https://thakkarparth007.github.io/copilot-explorer/posts/copilot-internals.html][Copilot Internals | thakkarparth007.github.io]]: current experimental implementation isn't as sophisticated, just a dumb grep - regex hellish madness on the codebase to find "relevant" symbols (again, relevancy is measure by naive line similarities to the current file name, no semantic analysis or AI involved here); also the syntax to expose inter-file context isn't known yet, I made up using comments.
