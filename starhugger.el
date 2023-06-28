@@ -24,7 +24,7 @@
 
 ;;; Code:
 
-(require 'cl-macs)
+(require 'cl-lib)
 (require 'subr-x)
 
 (require 'dash)
@@ -245,8 +245,8 @@ Additionally prevent errors about multi-byte characters."
               (insert
                (starhugger--record-propertize
                 (format
-                 (concat starhugger--record-heading-beg "OUTPUT #%d/%d from API:")
-                 (+ 1 it-index) (length lst))))
+                 "%sOUTPUT #%d/%d from API:"
+                 starhugger--record-heading-beg (+ 1 it-index) (length lst))))
               (insert "\n" it "\n\n"))))
 
         (insert "\n\n\n")))
@@ -455,9 +455,9 @@ When this minor mode is off, the overlay must not be shown."
             )
   (if starhugger-inlining-mode
       (progn
-        (add-hook 'after-change-functions 'starhugger-inlining--after-change-h nil t))
+        (add-hook 'after-change-functions #'starhugger-inlining--after-change-h nil t))
     (progn
-      (remove-hook 'after-change-functions 'starhugger-inlining--after-change-h t)
+      (remove-hook 'after-change-functions #'starhugger-inlining--after-change-h t)
       (when (overlayp starhugger--overlay)
         (delete-overlay starhugger--overlay)))))
 
@@ -964,6 +964,7 @@ Note that the number of suggestions are limited by
     (read-only-mode 1)))
 
 (defun starhugger-goto-suggestion ()
+  "Go to the beginning of inline suggestion."
   (interactive)
   (goto-char (overlay-start starhugger--overlay)))
 

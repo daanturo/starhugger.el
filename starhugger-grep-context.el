@@ -1,12 +1,24 @@
 ;;; starhugger-grep-context.el --- Get project-wide context by dumb grepping  -*- lexical-binding: t; -*-
 
+;; This program is free software: you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License as published by
+;; the Free Software Foundation, either version 3 of the License, or
+;; (at your option) any later version.
+
+;; This program is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+
+;; You should have received a copy of the GNU General Public License
+;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 ;;; Commentary:
 ;; 
 
 ;;; Code:
 
-(require 'cl-macs)
+(require 'cl-lib)
 (require 'dash)
 (require 'compat)
 
@@ -74,7 +86,7 @@ May still include script statements."
           "[[:alnum:]_ \t]*=[ \t]*\\(.*?\\)[^{]*\\{$"))
        ;; C macros
        "^#define "
-       ;; lisp
+       ;; Lisp
        "^\\(([-a-z]+-)?def")
      (apply #'starhugger--group-regexes it))))
 
@@ -168,13 +180,13 @@ When nil, project context won't be used."
   "Return the path of the script to execute for grepping the context.
 Reason(s ) for using another non-Elisp script: The filtering and
 sorting computation is a bit expensive to run so it will block
-Emacs, while current Emacs lisp's asynchronous capabilities are
+Emacs, while current Emacs Lisp's asynchronous capabilities are
 not great: `async-start' doesn't have access to the environment
 of the current Emacs session including packages and libraries."
   (with-memoization starhugger-grep-context--script-path
     (or (locate-library "starhugger-grep-context-process.py")
         (error
-         "%s not found, please review your installation recipe."
+         "%s not found, please review your installation recipe"
          "starhugger-grep-context-process.py"))))
 
 (defun starhugger-grep-context--get-lines (callback)
