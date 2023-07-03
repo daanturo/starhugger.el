@@ -315,7 +315,8 @@ To test if the model honors use_cache = false, run this twice in the shell:
 curl https://api-inference.huggingface.co/models/bigcode/starcoder \\
     -X POST \\
     -H \"Content-Type: application/json\" \\
-    -d \\='{\"options\": {\"use_cache\": false}, \"parameters\": {\"num_return_sequences\": 2},\"inputs\": \"ping!\"}\\='
+    -d \\='{\"options\": {\"use_cache\": false},\
+ \"parameters\": {\"num_return_sequences\": 2},\"inputs\": \"ping!\"}\\='
 
 It should return 2 different responses, each with 2
 \"generated_text\"."
@@ -1074,3 +1075,7 @@ a new answer."
 ;;; starhugger.el ends here
 
 (provide 'starhugger)
+
+;; Local Variables:
+;; byte-compile-docstring-max-column: 200
+;; End:

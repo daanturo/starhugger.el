@@ -266,3 +266,7 @@ This must be called in the completing buffer."
 ;;; starhugger-grep-context.el ends here
 
 (provide 'starhugger-grep-context)
+
+;; Local Variables:
+;; byte-compile-docstring-max-column: 200
+;; End:
