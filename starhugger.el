@@ -169,6 +169,13 @@ Additionally prevent errors about multi-byte characters."
 
 (defvar-local starhugger--current-request-buffer-list '())
 
+(defun starhugger--get-api-token-as-string ()
+  (cond
+   ((stringp starhugger-api-token)
+    starhugger-api-token)
+   ((functionp starhugger-api-token)
+    (funcall starhugger-api-token))))
+
 (cl-defun starhugger--request (prompt callback &key data headers method +parameters +options)
   "CALLBACK's arguments: the response's content."
   (run-hooks 'starhugger-before-request-hook)
@@ -184,11 +191,7 @@ Additionally prevent errors about multi-byte characters."
             (or headers
                 `(("Content-Type" . "application/json")
                   ,@(-some-->
-                        (cond
-                         ((stringp starhugger-api-token)
-                          starhugger-api-token)
-                         ((functionp starhugger-api-token)
-                          (funcall starhugger-api-token)))
+                        (starhugger--get-api-token-as-string)
                       `(("Authorization" . ,(format "Bearer %s" it))))))))
       (when starhugger-debug
         (dlet ((starhugger--log-buffer " *starhugger sent request data"))
