@@ -991,7 +991,6 @@ cached, for the suggestion to appear."
 
 (defvar-local starhugger--auto-timer nil)
 
-;;;###autoload
 (defun starhugger-auto--after-change-h (&optional _beg _end old-len)
   (when (and this-command (not starhugger--inline-inhibit-changing-overlay))
     (when (timerp starhugger--auto-timer)
@@ -1006,7 +1005,6 @@ cached, for the suggestion to appear."
            (< 0 old-len) ; don't fetch new when deleting
            ))))
 
-;;;###autoload
 (defun starhugger-auto--post-command-h ()
   (when (and starhugger--overlay
              starhugger-inlining-mode
@@ -1019,25 +1017,18 @@ cached, for the suggestion to appear."
       (unless (and (numberp beg) (numberp end) (<= beg (point) end))
         (starhugger-dismiss-suggestion)))))
 
-;; Dump the entire minor mode into the autoloads file, so that it
-;; can be enabled without having to load the whole package.
 ;;;###autoload
-(progn
-
-  (define-minor-mode starhugger-auto-mode
-    "Automatic `starhugger-trigger-suggestion' in current buffer."
-    :lighter " 💫"
-    :global nil
-    (if starhugger-auto-mode
-        (progn
-          (add-hook 'post-command-hook #'starhugger-auto--post-command-h nil t)
-          (add-hook 'after-change-functions #'starhugger-auto--after-change-h nil t))
+(define-minor-mode starhugger-auto-mode
+  "Automatic `starhugger-trigger-suggestion' in current buffer."
+  :lighter " 💫"
+  :global nil
+  (if starhugger-auto-mode
       (progn
-        (remove-hook 'post-command-hook #'starhugger-auto--post-command-h t)
-        (remove-hook 'after-change-functions #'starhugger-auto--after-change-h t))))
-
-  ;;
-  )
+        (add-hook 'post-command-hook #'starhugger-auto--post-command-h nil t)
+        (add-hook 'after-change-functions #'starhugger-auto--after-change-h nil t))
+    (progn
+      (remove-hook 'post-command-hook #'starhugger-auto--post-command-h t)
+      (remove-hook 'after-change-functions #'starhugger-auto--after-change-h t))))
 
 ;;;; Other commands
 
