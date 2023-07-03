@@ -315,7 +315,8 @@ To test if the model honors use_cache = false, run this twice in the shell:
 curl https://api-inference.huggingface.co/models/bigcode/starcoder \\
     -X POST \\
     -H \"Content-Type: application/json\" \\
-    -d \\='{\"options\": {\"use_cache\": false}, \"parameters\": {\"num_return_sequences\": 2},\"inputs\": \"ping!\"}\\='
+    -d \\='{\"options\": {\"use_cache\": false},\
+ \"parameters\": {\"num_return_sequences\": 2},\"inputs\": \"ping!\"}\\='
 
 It should return 2 different responses, each with 2
 \"generated_text\"."
@@ -853,7 +854,8 @@ unfinished fetches."
 (defun starhugger--accept-suggestion-partially (by &optional args)
   "Insert a part of active suggestion by the function BY.
 Accept the part that is before the point after applying BY on
-ARGS.  Note that BY should be `major-mode' dependant."
+ARGS. Note that BY should be `major-mode' independent (being
+executed in a temporary buffer)."
   (-when-let* ((pos (overlay-start starhugger--overlay)))
     (dlet ((starhugger--inline-inhibit-changing-overlay t))
       (goto-char pos)
@@ -1074,3 +1076,7 @@ a new answer."
 ;;; starhugger.el ends here
 
 (provide 'starhugger)
+
+;; Local Variables:
+;; byte-compile-docstring-max-column: 200
+;; End:
