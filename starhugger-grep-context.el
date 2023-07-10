@@ -238,7 +238,6 @@ error: %s
 
 (defvar-local starhugger-grep-context--prefix-comments--cache nil)
 
-;;;###autoload
 (defun starhugger-grep-context--prefix-comments (callback)
   "CALLBACK is called with an annotated comment string as argument.
 This must be called in the completing buffer."

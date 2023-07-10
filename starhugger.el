@@ -744,16 +744,20 @@ dependencies.  Also remember to reduce
              (-let* ((prompt
                       (cond
                        (suf-compon
-                        (concat pre-token
-                                dumb-context pre-compon
-                                mid-token
-                                suf-compon
-                                suf-token))
+                        (concat
+                         pre-token
+                         dumb-context
+                         pre-compon
+                         mid-token
+                         suf-compon
+                         suf-token))
                        (t
                         (concat dumb-context pre-compon)))))
                (funcall callback prompt)))))
     (if starhugger-enable-dumb-grep-context
-        (starhugger-grep-context--prefix-comments wrapped-callback)
+        (progn
+          (require 'starhugger-grep-context)
+          (starhugger-grep-context--prefix-comments wrapped-callback))
       (funcall wrapped-callback ""))))
 
 (defun starhugger--get-from-num-or-list (num-or-list &optional idx)
