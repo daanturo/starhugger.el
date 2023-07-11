@@ -735,7 +735,7 @@ dependencies.  Also remember to reduce
 (declare-function starhugger-grep-context--prefix-comments
                   "starhugger-grep-context")
 
-(defun starhugger--async-prompt (&optional callback)
+(defun starhugger--async-prompt (callback)
   "CALLBACK is called with the constructed prompt."
   (-let* (([pre-compon suf-compon] (starhugger--prompt-build-components))
           ((pre-token mid-token suf-token) starhugger-fill-tokens)
@@ -774,7 +774,7 @@ dependencies.  Also remember to reduce
     (elt num-or-list 0))))
 
 ;;;###autoload
-(cl-defun starhugger-trigger-suggestion (&key interact force-new num)
+(cl-defun starhugger-trigger-suggestion (&key interact force-new num prompt-fn max-new-tokens)
   "Show AI-powered code suggestions as overlays.
 When an inline suggestion is already showing, new suggestions
 will be fetched, you can switch to them by calling
@@ -792,6 +792,7 @@ fetch different responses.  Non-nil INTERACT: show spinner."
        (call-buf (current-buffer))
        (pt0 (point))
        (state (starhugger--suggestion-state))
+       (prompt-fn (or prompt-fn #'starhugger--async-prompt))
        (callback
         (lambda (prompt)
           (when (< 0 (length prompt))
@@ -822,11 +823,13 @@ fetch different responses.  Non-nil INTERACT: show spinner."
                                  (starhugger--ensure-inlininng-mode 0))))))))
                      :spin (or starhugger-debug interact)
                      :force-new (or force-new (< 1 fetch-time))
-                     :max-new-tokens (starhugger--get-from-num-or-list starhugger-max-new-tokens
-                                                                       interact)
+                     :max-new-tokens (or max-new-tokens
+                                         (starhugger--get-from-num-or-list
+                                          starhugger-max-new-tokens
+                                          interact))
                      :num num))))
               (funcall func 1))))))
-    (starhugger--async-prompt callback)))
+    (funcall prompt-fn callback)))
 
 (defun starhugger--triggger-suggestion-prefer-cache
     (in-buffer position &optional cache-only)
@@ -1067,6 +1070,44 @@ a new answer."
    :force-new force-new
    :display t
    :spin t))
+
+(defun starhugger--suggest-git-commit-message-prompt-fn (callback)
+  (-let*
+      ((outbuf
+        (generate-new-buffer-name
+         " starhugger--suggest-git-commit-message-prompt-fn"))
+       (sentinel
+        (lambda (proc _event)
+          (with-current-buffer outbuf
+            (-let* ((exit-code (process-exit-status proc))
+                    (proc-output
+                     (buffer-substring-no-properties (point-min) (point-max))))
+              (if (= 0 exit-code)
+                  (-let*
+                      ((prompt
+                        (format
+                         ;; "%s<commit_msg>"
+                         "`git diff --cached`'s output:\n```\n%s\n```\nSuggested commit message:"
+                         proc-output)))
+                    (funcall callback prompt))
+                (message "`starhugger:' git exited with code: %s, output:\n%s"
+                         exit-code proc-output))))
+          (kill-buffer outbuf)))
+       (proc
+        (start-process
+         "starhugger--suggest-git-commit-message-prompt-fn" outbuf "git"
+         "--no-pager" "diff" "--cached")))
+    (set-process-sentinel proc sentinel)))
+
+;;;###autoload
+(defun starhugger-suggest-git-commit-message ()
+  (interactive)
+  (starhugger-trigger-suggestion
+   :interact t
+   :force-new starhugger-inlining-mode
+   :max-new-tokens 256
+   :prompt-fn #'starhugger--suggest-git-commit-message-prompt-fn))
+
 
 ;;; starhugger.el ends here
 
