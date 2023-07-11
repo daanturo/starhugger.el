@@ -53,14 +53,13 @@ There is also ~starhugger-auto-mode~ (non-global minor mode) but its usage isn't
 ** Example configuration
 
 #+begin_src elisp
-
-(global-set-key (kbd "M-\\") #'starhugger-trigger-suggestion)
+(setq starhugger-api-token "hf_ your token here")
 
 ;; Use https://huggingface.co/bigcode/starcoderplus instead
 (setq starhugger-model-api-endpoint-url
       "https://api-inference.huggingface.co/models/bigcode/starcoderplus")
 
-(setq starhugger-api-token "hf_ your token here")
+(global-set-key (kbd "M-\\") #'starhugger-trigger-suggestion)
 
 (with-eval-after-load 'starhugger
   ;; `starhugger-inline-menu-item' makes a conditional binding that is only active at the inline suggestion start
