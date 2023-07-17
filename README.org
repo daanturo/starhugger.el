@@ -1,3 +1,6 @@
+[[https://melpa.org/#/starhugger][file:https://melpa.org/packages/starhugger-badge.svg]] [[https://stable.melpa.org/#/starhugger][file:https://stable.melpa.org/packages/starhugger-badge.svg]]
+
+
 - Hugging Face/AI-powered text & code completion client (unofficial).
 Currently supported model(s): [[https://huggingface.co/bigcode/starcoder]] (and its compatible variants).
 
@@ -10,7 +13,9 @@ https://github.com/daanturo/starhugger.el/assets/32123754/5ff826ad-5644-4b15-a81
 
 * Installation
 
-Add one of those to your configuration.
+Starhugger is installable from [[https://melpa.org/#/starhugger][MELPA - Starhugger]], using the command ~package-install~.
+
+Of if you want to install from source, add one of the following to your configuration:
 
 #+begin_src elisp
 
