@@ -1,6 +1,6 @@
 ;;; starhugger.el --- Hugging Face/AI-powered text & code completion client  -*- lexical-binding: t; -*-
 
-;; Version: 0.3.1-git
+;; Version: 0.3.1
 ;; Package-Requires: ((emacs "28.2") (compat "29.1.4.0") (dash "2.18.0") (s "1.13.1") (spinner "1.7.4"))
 ;; Keywords: completion, convenience, languages
 ;; Homepage: https://gitlab.com/daanturo/starhugger.el
