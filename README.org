@@ -2,8 +2,8 @@
 
 
 - Hugging Face/AI-powered text & code completion client (unofficial).
-Currently supported model(s): [[https://huggingface.co/bigcode/starcoder]],
-[[https://huggingface.co/codellama/CodeLlama-13b-hf]].
+Currently supported model(s): [[https://huggingface.co/bigcode/starcoder][bigcode/starcoder]],
+[[https://huggingface.co/codellama/CodeLlama-13b-hf][codellama/CodeLlama-13b-hf]].
 
 - [[https://github.com/daanturo/starhugger.el/assets/32123754/5ff826ad-5644-4b15-a811-ad8f3fc78979][Demo]]:
 https://github.com/daanturo/starhugger.el/assets/32123754/5ff826ad-5644-4b15-a811-ad8f3fc78979

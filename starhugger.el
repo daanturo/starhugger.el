@@ -1,6 +1,6 @@
 ;;; starhugger.el --- Hugging Face/AI-powered text & code completion client  -*- lexical-binding: t; -*-
 
-;; Version: 0.4.0
+;; Version: 0.4.0-git
 ;; Package-Requires: ((emacs "28.2") (compat "29.1.4.0") (dash "2.18.0") (s "1.13.1") (spinner "1.7.4"))
 ;; Keywords: completion, convenience, languages
 ;; Homepage: https://gitlab.com/daanturo/starhugger.el
@@ -106,8 +106,10 @@ configure `starhugger-model-api-endpoint-url',
            (setq starhugger-stop-tokens (map-nested-elt preset '(:stop-tokens))))))
 
 (defcustom starhugger-model-api-endpoint-url
-  (map-nested-elt
-   starhugger--model-config-presets (list starhugger-model-id :endpoint))
+  (or (map-nested-elt
+       starhugger--model-config-presets (list starhugger-model-id :endpoint))
+      (format "https://api-inference.huggingface.co/models/%s"
+              starhugger-model-id))
   "End point URL to make HTTP requests."
   :group 'starhugger
   :type 'string)
@@ -731,6 +733,7 @@ prompt."
 
 (defun starhugger--prompt-build-components ()
   (if (and starhugger-fill-in-the-middle
+           starhugger-fill-tokens
            ;; don't use fill mode when at trailing newlines
            (not (looking-at-p "\n*\\'")))
       (-let* ((intend-suf-len
