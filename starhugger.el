@@ -1,6 +1,6 @@
 ;;; starhugger.el --- Hugging Face/AI-powered text & code completion client  -*- lexical-binding: t; -*-
 
-;; Version: 0.3.1
+;; Version: 0.4.0
 ;; Package-Requires: ((emacs "28.2") (compat "29.1.4.0") (dash "2.18.0") (s "1.13.1") (spinner "1.7.4"))
 ;; Keywords: completion, convenience, languages
 ;; Homepage: https://gitlab.com/daanturo/starhugger.el
@@ -26,6 +26,7 @@
 
 (require 'cl-lib)
 (require 'subr-x)
+(require 'map)
 
 (require 'dash)
 (require 'compat)
@@ -67,11 +68,66 @@ dynamically setting with (`encode-coding-string' ... \\='utf-8)."
   :group 'starhugger
   :type '(choice string function))
 
+(defvar starhugger--model-config-presets
+  '(("bigcode/starcoder" .
+     (:endpoint
+      "https://api-inference.huggingface.co/models/bigcode/starcoder"
+      :fill-tokens ("<fim_prefix>" "<fim_suffix>" "<fim_middle>")
+      :stop-tokens ("<|endoftext|>")))
+    ("codellama/CodeLlama-13b-hf" .
+     (:endpoint
+      "https://api-inference.huggingface.co/models/codellama/CodeLlama-13b-hf"
+      :fill-tokens ("<PRE>" "<SUF>" "MID")
+      :stop-tokens ("<|endoftext|>" "<EOT>"))))
+  "Refer to https://github.com/huggingface/huggingface-vscode/blob/f044ff02f08e49a5da9849f34235fece4a32535b/src/configTemplates.ts#L17.")
+
+(defvar starhugger-model-api-endpoint-url)
+(defvar starhugger-fill-tokens)
+(defvar starhugger-stop-tokens)
+
+(defcustom starhugger-model-id "bigcode/starcoder"
+  "The language model's ID.
+If you want to use one of the configuration presets, set this
+before loading `starhugger.el' or use `setopt' (or Emacs's
+customization interface). Else if you use a custom model,
+configure `starhugger-model-api-endpoint-url',
+`starhugger-fill-tokens', `starhugger-stop-tokens' manually."
+  :group 'starhugger
+  :type 'string
+  :set (lambda (sym val)
+         (set-default-toplevel-value sym val)
+         (-when-let* ((preset
+                       (map-nested-elt
+                        starhugger--model-config-presets
+                        (list starhugger-model-id))))
+           (setq starhugger-model-api-endpoint-url
+                 (map-nested-elt preset '(:endpoint)))
+           (setq starhugger-fill-tokens (map-nested-elt preset '(:fill-tokens)))
+           (setq starhugger-stop-tokens (map-nested-elt preset '(:stop-tokens))))))
+
 (defcustom starhugger-model-api-endpoint-url
-  "https://api-inference.huggingface.co/models/bigcode/starcoder"
+  (map-nested-elt
+   starhugger--model-config-presets (list starhugger-model-id :endpoint))
   "End point URL to make HTTP requests."
   :group 'starhugger
   :type 'string)
+
+(defcustom starhugger-stop-tokens
+  (map-nested-elt
+   starhugger--model-config-presets (list starhugger-model-id :stop-tokens))
+  "End of sentence tokens."
+  :group 'starhugger
+  :type 'string)
+
+(defcustom starhugger-fill-tokens
+  (map-nested-elt
+   starhugger--model-config-presets (list starhugger-model-id :fill-tokens))
+  "List of 3 tokens to use for `starhugger-fill-in-the-middle'.
+See
+https://github.com/huggingface/huggingface-vscode/blob/73818334f4939c2f19480a404f74944a47933a12/src/runCompletion.ts#L66"
+  :group 'starhugger
+  :type '(list string string string))
+
 
 (defun starhugger--get-all-generated-texts (str)
   (-let* ((parsed (json-parse-string str :object-type 'alist))
@@ -150,7 +206,7 @@ may cause unexpected behaviors."
   "When a number, set it to max_new_tokens.
 It can be a list of two natural numbers: the number of tokens to
 fetch when called automatically and the number of token to fetch
-when called interactively.  See also
+when called interactively. See also
 `starhugger-additional-data-alist'."
   :group 'starhugger
   :type '(choice natnum (list natnum natnum)))
@@ -264,28 +320,18 @@ Enable this when the return_full_text parameter isn't honored."
   :group 'starhugger
   :type 'boolean)
 
-(defcustom starhugger-stop-token "<|endoftext|>"
-  "End of sentence token."
-  :group 'starhugger
-  :type 'string)
+(defvar starhugger-stop-token nil
+  "Obsolete, customize `starhugger-stop-tokens' instead.")
 
 (defcustom starhugger-chop-stop-token t
-  "Whether to remove `starhugger-stop-token' before inserting."
+  "Whether to remove `starhugger-stop-tokens' before inserting."
   :group 'starhugger
   :type 'boolean)
-
-(defcustom starhugger-fill-tokens
-  '("<fim_prefix>" "<fim_suffix>" "<fim_middle>")
-  "List of 3 tokens to use for `starhugger-fill-in-the-middle'.
-See
-https://github.com/huggingface/huggingface-vscode/blob/73818334f4939c2f19480a404f74944a47933a12/src/runCompletion.ts#L66"
-  :group 'starhugger
-  :type '(list string string string))
 
 (defcustom starhugger-fill-in-the-middle t
   "Enable using code from both before and after point as prompt.
 Unless just before the buffer end's trailing newlines (if any),
-in that case don't use fill mode.  See `starhugger-fill-tokens'
+in that case don't use fill mode. See `starhugger-fill-tokens'
 for the relevant tokens."
   :group 'starhugger
   :type 'boolean)
@@ -310,13 +356,14 @@ A single number means just use it without generating. nil means
 don't set temperature at all. Set this to a list of numbers when
 the model doesn't honor use_cache = false.
 
-To test if the model honors use_cache = false, run this twice in the shell:
+To test if the model honors use_cache = false, run this twice in
+the shell:
 
 curl https://api-inference.huggingface.co/models/bigcode/starcoder \\
-    -X POST \\
-    -H \"Content-Type: application/json\" \\
-    -d \\='{\"options\": {\"use_cache\": false},\
- \"parameters\": {\"num_return_sequences\": 2},\"inputs\": \"ping!\"}\\='
+        -X POST \\
+        -H \"Content-Type: application/json\" \\
+        -d \\='{\"options\": {\"use_cache\": false},\
+ \"parameters\": {\"num_return_sequences\": 2}, \"inputs\": \"ping!\"}\\='
 
 It should return 2 different responses, each with 2
 \"generated_text\"."
@@ -361,12 +408,12 @@ It should return 2 different responses, each with 2
                                              spin force-new num max-new-tokens
                                              &allow-other-keys)
   "CALLBACK is called with the generated text list.
-PROMPT is the prompt to use.  DISPLAY is whether to display the
-generated text in a buffer.  SPIN is whether to show a spinner.
-FORCE-NEW is whether to force a new request.  NUM is the number
-of responses to return.  ARGS are the arguments to pass to
-`starhugger--request'.  See `starhugger--request' for the other
-arguments.  See `starhugger-additional-data-alist' for additional
+PROMPT is the prompt to use. DISPLAY is whether to display the
+generated text in a buffer. SPIN is whether to show a spinner.
+FORCE-NEW is whether to force a new request. NUM is the number of
+responses to return. ARGS are the arguments to pass to
+`starhugger--request'. See `starhugger--request' for the other
+arguments. See `starhugger-additional-data-alist' for additional
 data to pass."
   (-let* ((call-buf (current-buffer))
           (spin-obj
@@ -481,8 +528,8 @@ The first number is the number of suggestions to fetch when
 The second number is the number of suggestions to fetch when
 `starhugger-trigger-suggestion' is called interactively.
 
-It can also be a single number, in which case the first number
-is the same as the second number."
+It can also be a single number, in which case the first number is
+the same as the second number."
   :group 'starhugger
   :type '(choice natnum (list natnum natnum)))
 
@@ -490,7 +537,7 @@ is the same as the second number."
   (-->
    (overlay-get starhugger--overlay 'starhugger-ovlp-current-suggestion)
    (if chop-stop-token
-       (string-remove-suffix starhugger-stop-token it)
+       (s-chop-suffixes starhugger-stop-tokens it)
      it)))
 
 (defvar starhugger-at-suggestion-map (make-sparse-keymap)
@@ -573,7 +620,7 @@ See `starhugger-inline-menu-item'."
 
 (defun starhugger-inline-menu-item (cmd)
   "Return a CMD when only at the start of suggestion at run-time.
-Use this when binding keys.  See info node `(elisp) Extended Menu
+Use this when binding keys. See info node `(elisp) Extended Menu
 Items'."
   `(menu-item "" ,cmd nil :filter starhugger-at-suggestion-beg-p))
 
@@ -727,7 +774,7 @@ prompt."
 (defcustom starhugger-enable-dumb-grep-context nil
   "Whether to inject a dumb grep-based project-wide context to the prompt.
 Experimental! This requires ripgrep and python3 as hard
-dependencies.  Also remember to reduce
+dependencies. Also remember to reduce
 `starhugger-max-prompt-length' if you enable this."
   :group 'starhugger
   :type 'boolean)
@@ -778,10 +825,10 @@ dependencies.  Also remember to reduce
   "Show AI-powered code suggestions as overlays.
 When an inline suggestion is already showing, new suggestions
 will be fetched, you can switch to them by calling
-`starhugger-show-next-suggestion' after fetching finishes.  NUM:
+`starhugger-show-next-suggestion' after fetching finishes. NUM:
 number of suggestions to fetch at once (actually sequentially,
-the newly fetched ones are appended silently).  FORCE-NEW: try to
-fetch different responses.  Non-nil INTERACT: show spinner."
+the newly fetched ones are appended silently). FORCE-NEW: try to
+fetch different responses. Non-nil INTERACT: show spinner."
   (interactive (list :interact t :force-new starhugger-inlining-mode))
   (-let*
       ((num
@@ -869,7 +916,7 @@ executed in a temporary buffer)."
       (-let* ((suggt (starhugger--current-overlay-suggestion))
               (suggt*
                (if starhugger-chop-stop-token
-                   (string-remove-suffix starhugger-stop-token suggt)
+                   (s-chop-suffixes starhugger-stop-tokens suggt)
                  suggt))
               (text-to-insert
                (with-temp-buffer

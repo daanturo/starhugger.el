@@ -1,3 +1,9 @@
+* Version 0.4.0
+
+- Support ~codellama/CodeLlama-13b-hf~.
+
+- Obsolete ~starhugger-stop-token~ in favor of ~starhugger-stop-tokens~.
+
 * Version 0.3.1
 
 - Add ~starhugger-goto-suggestion~
