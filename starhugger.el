@@ -1,6 +1,6 @@
 ;;; starhugger.el --- Hugging Face/AI-powered text & code completion client  -*- lexical-binding: t; -*-
 
-;; Version: 0.4.0-git
+;; Version: 0.4.1-git
 ;; Package-Requires: ((emacs "28.2") (compat "29.1.4.0") (dash "2.18.0") (s "1.13.1") (spinner "1.7.4"))
 ;; Keywords: completion, convenience, languages
 ;; Homepage: https://gitlab.com/daanturo/starhugger.el
@@ -91,7 +91,9 @@ If you want to use one of the configuration presets, set this
 before loading `starhugger.el' or use `setopt' (or Emacs's
 customization interface). Else if you use a custom model,
 configure `starhugger-model-api-endpoint-url',
-`starhugger-fill-tokens', `starhugger-stop-tokens' manually."
+`starhugger-fill-tokens', `starhugger-stop-tokens' manually (and
+you don't need to customize this variable if they are set that
+way)."
   :group 'starhugger
   :type 'string
   :set (lambda (sym val)

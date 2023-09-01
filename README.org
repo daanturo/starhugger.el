@@ -161,3 +161,5 @@ Emacs overlays are used under the hood to display inline suggestion, there are s
   Current implementation: ~starhugger-auto-mode~ using overlays.
 
 - ½ Find a way to take other files into account [[https://thakkarparth007.github.io/copilot-explorer/posts/copilot-internals.html][Copilot Internals | thakkarparth007.github.io]]: current experimental implementation isn't as sophisticated, just a dumb grep - regex hellish madness on the codebase to find "relevant" symbols (again, relevancy is measure by naive line similarities to the current file name, no semantic analysis or AI involved here); also the syntax to expose inter-file context isn't known yet, I made up using comments.
+
+- ? Separate frontend (inline suggestion interface) and backend (the text completion provider), and allow multiple backends, not just Hugging Face's inference API.
