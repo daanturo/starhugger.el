@@ -1,3 +1,7 @@
+* Version 0.4.1
+
+- Bug fixes
+
 * Version 0.4.0
 
 - Support ~codellama/CodeLlama-13b-hf~.

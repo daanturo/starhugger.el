@@ -1,6 +1,6 @@
 ;;; starhugger.el --- Hugging Face/AI-powered text & code completion client  -*- lexical-binding: t; -*-
 
-;; Version: 0.4.1-git
+;; Version: 0.4.1
 ;; Package-Requires: ((emacs "28.2") (compat "29.1.4.0") (dash "2.18.0") (s "1.13.1") (spinner "1.7.4"))
 ;; Keywords: completion, convenience, languages
 ;; Homepage: https://gitlab.com/daanturo/starhugger.el
@@ -77,7 +77,7 @@ dynamically setting with (`encode-coding-string' ... \\='utf-8)."
     ("codellama/CodeLlama-13b-hf" .
      (:endpoint
       "https://api-inference.huggingface.co/models/codellama/CodeLlama-13b-hf"
-      :fill-tokens ("<PRE>" "<SUF>" "MID")
+      :fill-tokens ("<PRE>" "<SUF>" "<MID>")
       :stop-tokens ("<|endoftext|>" "<EOT>"))))
   "Refer to https://github.com/huggingface/huggingface-vscode/blob/f044ff02f08e49a5da9849f34235fece4a32535b/src/configTemplates.ts#L17.")
 
