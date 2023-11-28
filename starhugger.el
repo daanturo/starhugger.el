@@ -437,7 +437,7 @@ data to pass."
                            (delete
                             request-buf
                             starhugger--current-request-buffer-list))))
-                 (when spin
+                 (when spin-obj
                    (funcall spin-obj))
                  (funcall callback gen-texts))
                :+options `(,@+options ,@dynm-options)
