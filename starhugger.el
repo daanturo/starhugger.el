@@ -80,42 +80,6 @@ dynamically setting with (`encode-coding-string' ... \\='utf-8)."
       :fill-tokens ("<PRE>" "<SUF>" "<MID>")
       :stop-tokens ("<|endoftext|>" "<EOT>"))))
   "Refer to https://github.com/huggingface/huggingface-vscode/blob/f044ff02f08e49a5da9849f34235fece4a32535b/src/configTemplates.ts#L17.")
-
-(defvar starhugger-model-api-endpoint-url)
-(defvar starhugger-fill-tokens)
-(defvar starhugger-stop-tokens)
-
-(defcustom starhugger-model-id "bigcode/starcoder"
-  "The language model's ID.
-If you want to use one of the configuration presets, set this
-before loading `starhugger.el' or use `setopt' (or Emacs's
-customization interface). Else if you use a custom model,
-configure `starhugger-model-api-endpoint-url',
-`starhugger-fill-tokens', `starhugger-stop-tokens' manually (and
-you don't need to customize this variable if they are set that
-way)."
-  :group 'starhugger
-  :type 'string
-  :set (lambda (sym val)
-         (set-default-toplevel-value sym val)
-         (-when-let* ((preset
-                       (map-nested-elt
-                        starhugger--model-config-presets
-                        (list starhugger-model-id))))
-           (setq starhugger-model-api-endpoint-url
-                 (map-nested-elt preset '(:endpoint)))
-           (setq starhugger-fill-tokens (map-nested-elt preset '(:fill-tokens)))
-           (setq starhugger-stop-tokens (map-nested-elt preset '(:stop-tokens))))))
-
-(defcustom starhugger-model-api-endpoint-url
-  (or (map-nested-elt
-       starhugger--model-config-presets (list starhugger-model-id :endpoint))
-      (format "https://api-inference.huggingface.co/models/%s"
-              starhugger-model-id))
-  "End point URL to make HTTP requests."
-  :group 'starhugger
-  :type 'string)
-
 (defcustom starhugger-stop-tokens
   (map-nested-elt
    starhugger--model-config-presets (list starhugger-model-id :stop-tokens))
@@ -133,14 +97,6 @@ https://github.com/huggingface/huggingface-vscode/blob/73818334f4939c2f19480a404
   :type '(list string string string))
 
 
-(defun starhugger--get-all-generated-texts (str)
-  (-let* ((parsed (json-parse-string str :object-type 'alist))
-          ((_ . err-msg) (and (listp parsed) (assoc 'error parsed))))
-    (cond
-     (err-msg
-      (user-error "`starhugger' response error: %s" err-msg))
-     (t
-      (-map (lambda (elem) (alist-get 'generated_text elem)) parsed)))))
 
 (defcustom starhugger-generated-buffer (format "*%s*" 'starhugger)
   "Buffer name to log parsed responses."
@@ -190,21 +146,6 @@ Doesn't count fills tokens and maybe the context."
 ;; WHY isn't this documented?!
 (defvar url-http-end-of-headers)
 
-(defcustom starhugger-additional-data-alist
-  '((parameters
-     (return_full_text . :false) ; don't re-include the prompt
-     )
-    (options)
-    ;;
-    )
-  "Detailed parameter list.
-An association list to be converted by `json-serialize'. See
-https://huggingface.co/docs/api-inference/detailed_parameters#text-generation-task
-for parameters. Note that this packages is built around the
-parameter \"return_full_text\" being false, setting it otherwise
-may cause unexpected behaviors."
-  :group 'starhugger
-  :type 'alist)
 
 (defcustom starhugger-max-new-tokens nil
   "When a number, set it to max_new_tokens.
@@ -229,56 +170,11 @@ Additionally prevent errors about multi-byte characters."
 
 (defvar-local starhugger--current-request-buffer-list '())
 
-(defun starhugger--get-api-token-as-string ()
-  (cond
-   ((stringp starhugger-api-token)
-    starhugger-api-token)
-   ((functionp starhugger-api-token)
-    (funcall starhugger-api-token))))
-
-(cl-defun starhugger--request (prompt callback &key data headers method +parameters +options)
-  "CALLBACK's arguments: the response's content."
-  (run-hooks 'starhugger-before-request-hook)
-  (-let* ((data
-           (or data
-               (starhugger--json-serialize
-                `((inputs . ,prompt)
-                  (parameters ,@+parameters)
-                  (options ,@+options))))))
-    (dlet ((url-request-method (or method "POST"))
-           (url-request-data data)
-           (url-request-extra-headers
-            (or headers
-                `(("Content-Type" . "application/json")
-                  ,@(-some-->
-                        (starhugger--get-api-token-as-string)
-                      `(("Authorization" . ,(format "Bearer %s" it))))))))
-      (when starhugger-debug
-        (dlet ((starhugger--log-buffer " *starhugger sent request data*"))
-          (starhugger--log data)))
-      (url-retrieve
-       starhugger-model-api-endpoint-url
-       (lambda (status)
-         (-let* ((content
-                  (and url-http-end-of-headers
-                       (buffer-substring url-http-end-of-headers (point-max)))))
-           (setq starhugger--last-request
-                 (list
-                  :response-content content
-                  :send-data data
-                  :response-status status))
-           (when (or starhugger-debug (not url-http-end-of-headers))
-             (starhugger--log
-              starhugger--last-request
-              :header (and url-http-end-of-headers
-                           (buffer-substring (point-min) url-http-end-of-headers))))
-           (funcall callback content)))
-       nil t))))
 
 (defcustom starhugger-complete-backend-function nil
   "The backend for code suggestion.
 The function accepts 2 arguments: prompt (string) and callback
-function (that accepts the model's returned string)."
+function (that accepts the model's list of generated strings)."
   :group 'starhugger
   :type 'function)
 
@@ -352,15 +248,6 @@ for the relevant tokens."
   :group 'starhugger
   :type 'float)
 
-(defun starhugger-turn-off-completion-in-region-mode ()
-  "Use this when inserting parsed response.
-To prevent key binding conflicts such as TAB."
-  (completion-in-region-mode 0))
-
-(defvar starhugger-post-insert-hook
-  '(starhugger-turn-off-completion-in-region-mode)
-  "Hook run after inserting the parsed response.")
-
 (defcustom starhugger-retry-temperature-range '(0.0 1.0)
   "The lower and upper bound of random temperature when retrying.
 A single number means just use it without generating. nil means
@@ -394,13 +281,13 @@ It should return 2 different responses, each with 2
               `((temperature . ,starhugger-retry-temperature-range)))))))
 
 (cl-defun starhugger--query-internal-1 (prompt callback &key +options +parameters display)
-  (starhugger--request
+  (starhugger-HFI--request
    prompt
    (lambda (returned)
      (when returned
        (-let* ((gen-texts-or-error
                 (condition-case err
-                    (starhugger--get-all-generated-texts returned)
+                    (starhugger--HFI-get-all-generated-texts returned)
                   (error (message "Error: %S" err) 'error)))
                (error-flag (equal gen-texts-or-error 'error)))
          (starhugger--record-generated
@@ -423,7 +310,7 @@ PROMPT is the prompt to use. DISPLAY is whether to display the
 generated text in a buffer. SPIN is whether to show a spinner.
 FORCE-NEW is whether to force a new request. NUM is the number of
 responses to return. ARGS are the arguments to pass to
-`starhugger--request'. See `starhugger--request' for the other
+`starhugger-HFI--request'. See `starhugger-HFI--request' for the other
 arguments. See `starhugger-additional-data-alist' for additional
 data to pass."
   (-let* ((call-buf (current-buffer))
@@ -460,6 +347,83 @@ data to pass."
           (set-process-plist
            proc `(:prompt ,prompt :args ,args ,@(process-plist proc))))
         request-buf))))
+
+;;;;; Backends
+
+;;;;;; Hugging Face inference API
+
+(defun starhugger--HFI-get-all-generated-texts (str)
+  (-let* ((parsed (json-parse-string str :object-type 'alist))
+          ((_ . err-msg) (and (listp parsed) (assoc 'error parsed))))
+    (cond
+     (err-msg
+      (user-error "`starhugger' response error: %s" err-msg))
+     (t
+      (-map (lambda (elem) (alist-get 'generated_text elem)) parsed)))))
+
+(defcustom starhugger-additional-data-alist
+  '((parameters
+     (return_full_text . :false) ; don't re-include the prompt
+     )
+    (options)
+    ;;
+    )
+  "Detailed parameter list.
+An association list to be converted by `json-serialize'. See
+https://huggingface.co/docs/api-inference/detailed_parameters#text-generation-task
+for parameters. Note that this packages is built around the
+parameter \"return_full_text\" being false, setting it otherwise
+may cause unexpected behaviors."
+  :group 'starhugger
+  :type 'alist)
+
+(defun starhugger--HFI-get-api-token-as-string ()
+  (cond
+   ((stringp starhugger-api-token)
+    starhugger-api-token)
+   ((functionp starhugger-api-token)
+    (funcall starhugger-api-token))))
+
+(cl-defun starhugger-HFI--request (prompt callback &key data headers method +parameters +options)
+  "CALLBACK's arguments: the response's content."
+  (run-hooks 'starhugger-before-request-hook)
+  (-let* ((data
+           (or data
+               (starhugger--json-serialize
+                `((inputs . ,prompt)
+                  (parameters ,@+parameters)
+                  (options ,@+options))))))
+    (dlet ((url-request-method (or method "POST"))
+           (url-request-data data)
+           (url-request-extra-headers
+            (or headers
+                `(("Content-Type" . "application/json")
+                  ,@(-some-->
+                        (starhugger--HFI-get-api-token-as-string)
+                      `(("Authorization" . ,(format "Bearer %s" it))))))))
+      (when starhugger-debug
+        (dlet ((starhugger--log-buffer " *starhugger sent request data*"))
+          (starhugger--log data)))
+      (url-retrieve
+       starhugger-model-api-endpoint-url
+       (lambda (status)
+         (-let* ((content
+                  (and url-http-end-of-headers
+                       (buffer-substring url-http-end-of-headers (point-max)))))
+           (setq starhugger--last-request
+                 (list
+                  :response-content content
+                  :send-data data
+                  :response-status status))
+           (when (or starhugger-debug (not url-http-end-of-headers))
+             (starhugger--log
+              starhugger--last-request
+              :header (and url-http-end-of-headers
+                           (buffer-substring (point-min) url-http-end-of-headers))))
+           (funcall callback content)))
+       nil t))))
+
+;;;;; Completion
 
 ;;;; Overlay inline suggestion
 
@@ -916,6 +880,15 @@ unfinished fetches."
   "Whether to continue triggering suggestion after accepting."
   :group 'starhugger
   :type 'boolean)
+
+(defun starhugger-turn-off-completion-in-region-mode ()
+  "Use this when inserting parsed response.
+To prevent key binding conflicts such as TAB."
+  (completion-in-region-mode 0))
+
+(defvar starhugger-post-insert-hook
+  '(starhugger-turn-off-completion-in-region-mode)
+  "Hook run after inserting the parsed response.")
 
 (defun starhugger--accept-suggestion-partially (by &optional args)
   "Insert a part of active suggestion by the function BY.
