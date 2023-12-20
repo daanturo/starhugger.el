@@ -1,6 +1,6 @@
 ;;; starhugger.el --- Hugging Face/AI-powered text & code completion client  -*- lexical-binding: t; -*-
 
-;; Version: 0.4.2
+;; Version: 0.5.0-git
 ;; Package-Requires: ((emacs "28.2") (compat "29.1.4.0") (dash "2.18.0") (s "1.13.1") (spinner "1.7.4"))
 ;; Keywords: completion, convenience, languages
 ;; Homepage: https://gitlab.com/daanturo/starhugger.el
@@ -37,7 +37,7 @@
   "Execute the forms in BODY with BUFFER-OR-NAME temporarily current.
 Like `with-current-buffer', but allow scrolling the visible
 window of BUFFER-OR-NAME when at the buffer end, if any."
-  (declare (debug t) (indent defun))
+  (declare (debug t) (indent 1))
   `(-let* ((wd (get-buffer-window ,buffer-or-name t)))
      (cond
       (wd
@@ -254,7 +254,7 @@ Additionally prevent errors about multi-byte characters."
                         (starhugger--get-api-token-as-string)
                       `(("Authorization" . ,(format "Bearer %s" it))))))))
       (when starhugger-debug
-        (dlet ((starhugger--log-buffer " *starhugger sent request data"))
+        (dlet ((starhugger--log-buffer " *starhugger sent request data*"))
           (starhugger--log data)))
       (url-retrieve
        starhugger-model-api-endpoint-url
@@ -275,6 +275,13 @@ Additionally prevent errors about multi-byte characters."
            (funcall callback content)))
        nil t))))
 
+(defcustom starhugger-complete-backend-function nil
+  "The backend for code suggestion.
+The function accepts 2 arguments: prompt (string) and callback
+function (that accepts the model's returned string)."
+  :group 'starhugger
+  :type 'function)
+
 (defun starhugger--record-propertize (str)
   (propertize str 'face '(:foreground "yellow" :weight bold)))
 
@@ -289,30 +296,30 @@ Additionally prevent errors about multi-byte characters."
                                (regexp-quote starhugger--record-heading-beg))
                    (setq-local window-point-insertion-type t))))))
     (starhugger--with-buffer-scrolling buf
-                                       (dlet ((inhibit-read-only t))
+      (dlet ((inhibit-read-only t))
 
-                                         (goto-char (point-max))
-                                         (insert
-                                          (starhugger--record-propertize
-                                           (concat starhugger--record-heading-beg "INPUT to API: ")))
-                                         (insert (format "(with parameters: %s)" parameters) "\n\n")
-                                         (insert prompt)
-                                         (insert "\n\n")
+        (goto-char (point-max))
+        (insert
+         (starhugger--record-propertize
+          (concat starhugger--record-heading-beg "INPUT to API: ")))
+        (insert (format "(with parameters: %s)" parameters) "\n\n")
+        (insert prompt)
+        (insert "\n\n")
 
-                                         (if (equal parsed-response-list '())
-                                             (insert
-                                              (starhugger--record-propertize
-                                               (concat starhugger--record-heading-beg "OUTPUT from API: None!\n")))
-                                           (-let* ((lst (ensure-list parsed-response-list)))
-                                             (--each lst
-                                               (insert
-                                                (starhugger--record-propertize
-                                                 (format
-                                                  "%sOUTPUT #%d/%d from API:"
-                                                  starhugger--record-heading-beg (+ 1 it-index) (length lst))))
-                                               (insert "\n" it "\n\n"))))
+        (if (equal parsed-response-list '())
+            (insert
+             (starhugger--record-propertize
+              (concat starhugger--record-heading-beg "OUTPUT from API: None!\n")))
+          (-let* ((lst (ensure-list parsed-response-list)))
+            (--each lst
+              (insert
+               (starhugger--record-propertize
+                (format
+                 "%sOUTPUT #%d/%d from API:"
+                 starhugger--record-heading-beg (+ 1 it-index) (length lst))))
+              (insert "\n" it "\n\n"))))
 
-                                         (insert "\n\n\n")))
+        (insert "\n\n\n")))
     (when display
       (save-selected-window
         (pop-to-buffer buf)))
