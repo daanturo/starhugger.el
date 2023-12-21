@@ -28,8 +28,9 @@
 (require 'subr-x)
 (require 'map)
 
-(require 'dash)
 (require 'compat)
+(require 'dash)
+(require 's)
 
 ;;;; Helpers
 
@@ -80,6 +81,33 @@ dynamically setting with (`encode-coding-string' ... \\='utf-8)."
       :fill-tokens ("<PRE>" "<SUF>" "<MID>")
       :stop-tokens ("<|endoftext|>" "<EOT>"))))
   "Refer to https://github.com/huggingface/huggingface-vscode/blob/f044ff02f08e49a5da9849f34235fece4a32535b/src/configTemplates.ts#L17.")
+
+(defvar starhugger-model-api-endpoint-url)
+(defvar starhugger-fill-tokens)
+(defvar starhugger-stop-tokens)
+
+(defcustom starhugger-model-id "bigcode/starcoder"
+  "The language model's ID.
+If you want to use one of the configuration presets, set this
+before loading `starhugger.el' or use `setopt' (or Emacs's
+customization interface). Else if you use a custom model,
+configure `starhugger-model-api-endpoint-url',
+`starhugger-fill-tokens', `starhugger-stop-tokens' manually (and
+you don't need to customize this variable if they are set that
+way)."
+  :group 'starhugger
+  :type 'string
+  :set (lambda (sym val)
+         (set-default-toplevel-value sym val)
+         (-when-let* ((preset
+                       (map-nested-elt
+                        starhugger--model-config-presets
+                        (list starhugger-model-id))))
+           (setq starhugger-model-api-endpoint-url
+                 (map-nested-elt preset '(:endpoint)))
+           (setq starhugger-fill-tokens (map-nested-elt preset '(:fill-tokens)))
+           (setq starhugger-stop-tokens (map-nested-elt preset '(:stop-tokens))))))
+
 (defcustom starhugger-stop-tokens
   (map-nested-elt
    starhugger--model-config-presets (list starhugger-model-id :stop-tokens))
@@ -169,14 +197,6 @@ Additionally prevent errors about multi-byte characters."
   "Hook run before making an HTTP request.")
 
 (defvar-local starhugger--current-request-buffer-list '())
-
-
-(defcustom starhugger-complete-backend-function nil
-  "The backend for code suggestion.
-The function accepts 2 arguments: prompt (string) and callback
-function (that accepts the model's list of generated strings)."
-  :group 'starhugger
-  :type 'function)
 
 (defun starhugger--record-propertize (str)
   (propertize str 'face '(:foreground "yellow" :weight bold)))
@@ -280,73 +300,7 @@ It should return 2 different responses, each with 2
        ,@(and starhugger-retry-temperature-range
               `((temperature . ,starhugger-retry-temperature-range)))))))
 
-(cl-defun starhugger--query-internal-1 (prompt callback &key +options +parameters display)
-  (starhugger-HFI--request
-   prompt
-   (lambda (returned)
-     (when returned
-       (-let* ((gen-texts-or-error
-                (condition-case err
-                    (starhugger--HFI-get-all-generated-texts returned)
-                  (error (message "Error: %S" err) 'error)))
-               (error-flag (equal gen-texts-or-error 'error)))
-         (starhugger--record-generated
-          prompt
-          (if error-flag
-              returned
-            gen-texts-or-error)
-          :display display
-          :parameters `((options . ,+options) (parameters . ,+parameters)))
-         (unless error-flag
-           (funcall callback gen-texts-or-error)))))
-   :+options +options
-   :+parameters +parameters))
 
-(cl-defun starhugger--query-internal (prompt callback &rest args &key display
-                                             spin force-new num max-new-tokens
-                                             &allow-other-keys)
-  "CALLBACK is called with the generated text list.
-PROMPT is the prompt to use. DISPLAY is whether to display the
-generated text in a buffer. SPIN is whether to show a spinner.
-FORCE-NEW is whether to force a new request. NUM is the number of
-responses to return. ARGS are the arguments to pass to
-`starhugger-HFI--request'. See `starhugger-HFI--request' for the other
-arguments. See `starhugger-additional-data-alist' for additional
-data to pass."
-  (-let* ((call-buf (current-buffer))
-          (spin-obj
-           (and spin starhugger-enable-spinner (starhugger--spinner-start)))
-          ((&alist 'options +options 'parameters +parameters)
-           (and force-new (starhugger--data-for-different-response)))
-          ((&alist 'parameters dynm-parameters 'options dynm-options)
-           starhugger-additional-data-alist))
-    (letrec ((request-buf
-              (starhugger--query-internal-1
-               prompt
-               (lambda (gen-texts)
-                 (when (buffer-live-p call-buf)
-                   (with-current-buffer call-buf
-                     ;; what if there are multiple requests in a single buffer?
-                     (setq starhugger--current-request-buffer-list
-                           (delete
-                            request-buf
-                            starhugger--current-request-buffer-list))))
-                 (when spin-obj
-                   (funcall spin-obj))
-                 (funcall callback gen-texts))
-               :+options `(,@+options ,@dynm-options)
-               :+parameters `(,@(and max-new-tokens `((max_new_tokens . ,max-new-tokens)))
-                              ,@(and num `((num_return_sequences . ,num)))
-                              ,@+parameters
-                              ,@dynm-parameters)
-               :display display)))
-      (push request-buf starhugger--current-request-buffer-list)
-      (-let* ((proc (get-buffer-process request-buf)))
-        (set-process-query-on-exit-flag proc nil)
-        (when starhugger-debug
-          (set-process-plist
-           proc `(:prompt ,prompt :args ,args ,@(process-plist proc))))
-        request-buf))))
 
 ;;;;; Backends
 
@@ -386,7 +340,6 @@ may cause unexpected behaviors."
 
 (cl-defun starhugger-HFI--request (prompt callback &key data headers method +parameters +options)
   "CALLBACK's arguments: the response's content."
-  (run-hooks 'starhugger-before-request-hook)
   (-let* ((data
            (or data
                (starhugger--json-serialize
@@ -423,7 +376,108 @@ may cause unexpected behaviors."
            (funcall callback content)))
        nil t))))
 
+(cl-defun starhugger-hugging-face-inference (prompt callback &key parameters options &allow-other-keys)
+  (starhugger-HFI--request
+   prompt
+   (lambda (content)
+     ;; TODO: do this properly
+     (funcall callback content))
+   :+parameters parameters
+   :+options options))
+
 ;;;;; Completion
+
+(defcustom starhugger-complete-backend-function
+  #'starhugger-hugging-face-inference
+  "The backend for code suggestion.
+The function accepts those arguments: prompt (string), callback
+function (that accepts 1 argument: the model's list of generated
+strings), and optional keyword(s): `:parameters': alist of
+parameters to pass to the model.
+
+TODO: other arguments?"
+  :group 'starhugger
+  :type 'function)
+
+(cl-defun starhugger--query-internal-1 (prompt callback &key +options +parameters display)
+  (run-hooks 'starhugger-before-request-hook)
+  (funcall
+   starhugger-complete-backend-function
+   prompt
+   (lambda (returned)
+     (when returned
+       (-let* ((gen-texts-or-error
+                (condition-case err
+                    (starhugger--HFI-get-all-generated-texts returned)
+                  (error (message "Error: %S" err) 'error)))
+               (error-flag (equal gen-texts-or-error 'error)))
+         (starhugger--record-generated
+          prompt
+          (if error-flag
+              returned
+            gen-texts-or-error)
+          :display display
+          :parameters `((options . ,+options) (parameters . ,+parameters)))
+         (unless error-flag
+           (funcall callback gen-texts-or-error)))))
+   :options +options
+   :parameters +parameters))
+
+(cl-defun starhugger--query-internal (prompt
+                                      callback
+                                      &rest
+                                      args
+                                      &key
+                                      display
+                                      spin
+                                      force-new
+                                      num
+                                      max-new-tokens
+                                      &allow-other-keys)
+  "CALLBACK is called with the generated text list.
+PROMPT is the prompt to use. DISPLAY is whether to display the
+generated text in a buffer. SPIN is whether to show a spinner.
+FORCE-NEW is whether to force a new request. NUM is the number of
+responses to return. ARGS are the arguments to pass to
+`starhugger-HFI--request'. See `starhugger-HFI--request' for the other
+arguments. See `starhugger-additional-data-alist' for additional
+data to pass."
+  (-let* ((call-buf (current-buffer))
+          (spin-obj
+           (and spin starhugger-enable-spinner (starhugger--spinner-start)))
+          ((&alist 'options +options 'parameters +parameters)
+           (and force-new (starhugger--data-for-different-response)))
+          ((&alist 'parameters dynm-parameters 'options dynm-options)
+           starhugger-additional-data-alist))
+    (letrec ((request-buf
+              (starhugger--query-internal-1
+               prompt
+               (lambda (gen-texts)
+                 (when (buffer-live-p call-buf)
+                   (with-current-buffer call-buf
+                     ;; what if there are multiple requests in a single buffer?
+                     (setq starhugger--current-request-buffer-list
+                           (delete
+                            request-buf
+                            starhugger--current-request-buffer-list))))
+                 (when spin-obj
+                   (funcall spin-obj))
+                 (funcall callback gen-texts))
+               :+options `(,@+options ,@dynm-options)
+               :+parameters
+               `(,@(and max-new-tokens `((max_new_tokens . ,max-new-tokens)))
+                 ,@(and num `((num_return_sequences . ,num)))
+                 ,@+parameters
+                 ,@dynm-parameters)
+               :display display)))
+      (push request-buf starhugger--current-request-buffer-list)
+      (-let* ((proc (get-buffer-process request-buf)))
+        (set-process-query-on-exit-flag proc nil)
+        (when starhugger-debug
+          (set-process-plist
+           proc `(:prompt ,prompt :args ,args ,@(process-plist proc))))
+        request-buf))))
+
 
 ;;;; Overlay inline suggestion
 
