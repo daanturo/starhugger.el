@@ -190,8 +190,9 @@ Additionally prevent errors about multi-byte characters."
   (-->
    object (apply #'json-serialize it args) (encode-coding-string it 'utf-8)))
 
-(defvar starhugger--last-request nil)
 (defvar starhugger-debug nil)
+(defvar starhugger--last-request nil
+  "Last returned request info, for debugging.")
 
 (defvar starhugger-before-request-hook '()
   "Hook run before making an HTTP request.")
@@ -306,15 +307,6 @@ It should return 2 different responses, each with 2
 
 ;;;;;; Hugging Face inference API
 
-(defun starhugger--HFI-get-all-generated-texts (str)
-  (-let* ((parsed (json-parse-string str :object-type 'alist))
-          ((_ . err-msg) (and (listp parsed) (assoc 'error parsed))))
-    (cond
-     (err-msg
-      (user-error "`starhugger' response error: %s" err-msg))
-     (t
-      (-map (lambda (elem) (alist-get 'generated_text elem)) parsed)))))
-
 (defcustom starhugger-additional-data-alist
   '((parameters
      (return_full_text . :false) ; don't re-include the prompt
@@ -376,12 +368,17 @@ may cause unexpected behaviors."
            (funcall callback content)))
        nil t))))
 
-(cl-defun starhugger-hugging-face-inference (prompt callback &key parameters options &allow-other-keys)
+(cl-defun starhugger-hugging-face-inference (prompt callback &rest args &key parameters options &allow-other-keys)
   (starhugger-HFI--request
    prompt
    (lambda (content)
-     ;; TODO: do this properly
-     (funcall callback content))
+     (-let* ((parsed (json-parse-string content :object-type 'alist))
+             ((_ . err-msg) (and (listp parsed) (assoc 'error parsed)))
+             (generated-lst
+              (and (null err-msg)
+                   (-map
+                    (lambda (elem) (alist-get 'generated_text elem)) parsed))))
+       (funcall callback generated-lst err-msg)))
    :+parameters parameters
    :+options options))
 
@@ -391,37 +388,34 @@ may cause unexpected behaviors."
   #'starhugger-hugging-face-inference
   "The backend for code suggestion.
 The function accepts those arguments: prompt (string), callback
-function (that accepts 1 argument: the model's list of generated
-strings), and optional keyword(s): `:parameters': alist of
-parameters to pass to the model.
-
-TODO: other arguments?"
+function (that accepts these argument: the model's list of
+generated strings, optionally error string), and optional
+keyword(s): `:parameters', `:options': alist of parameters and
+options, respectively to pass to the model; and other optional
+arguments."
+  ;; TODO: should error data be handle in the callback or a separate argument
+  ;; (callback function that handle errors separately).
   :group 'starhugger
   :type 'function)
 
 (cl-defun starhugger--query-internal-1 (prompt callback &key +options +parameters display)
   (run-hooks 'starhugger-before-request-hook)
-  (funcall
-   starhugger-complete-backend-function
-   prompt
-   (lambda (returned)
-     (when returned
-       (-let* ((gen-texts-or-error
-                (condition-case err
-                    (starhugger--HFI-get-all-generated-texts returned)
-                  (error (message "Error: %S" err) 'error)))
-               (error-flag (equal gen-texts-or-error 'error)))
-         (starhugger--record-generated
-          prompt
-          (if error-flag
-              returned
-            gen-texts-or-error)
-          :display display
-          :parameters `((options . ,+options) (parameters . ,+parameters)))
-         (unless error-flag
-           (funcall callback gen-texts-or-error)))))
-   :options +options
-   :parameters +parameters))
+  (funcall starhugger-complete-backend-function
+           prompt
+           (lambda (returned-lst &optional err-data)
+             (-let* ((err-str (format "%S" err-data)))
+               (starhugger--record-generated
+                prompt
+                (if err-data
+                    (cons err-str returned-lst)
+                  returned-lst)
+                :display display
+                :parameters `((options . ,+options) (parameters . ,+parameters)))
+               (when err-data
+                 (message "`starhugger' response error: %s" err-str))
+               (funcall callback returned-lst err-data)))
+           :options +options
+           :parameters +parameters))
 
 (cl-defun starhugger--query-internal (prompt
                                       callback
@@ -452,7 +446,7 @@ data to pass."
     (letrec ((request-buf
               (starhugger--query-internal-1
                prompt
-               (lambda (gen-texts)
+               (lambda (gen-texts &optional err-data)
                  (when (buffer-live-p call-buf)
                    (with-current-buffer call-buf
                      ;; what if there are multiple requests in a single buffer?
@@ -462,7 +456,8 @@ data to pass."
                             starhugger--current-request-buffer-list))))
                  (when spin-obj
                    (funcall spin-obj))
-                 (funcall callback gen-texts))
+                 (when (null err-data)
+                   (funcall callback gen-texts)))
                :+options `(,@+options ,@dynm-options)
                :+parameters
                `(,@(and max-new-tokens `((max_new_tokens . ,max-new-tokens)))
