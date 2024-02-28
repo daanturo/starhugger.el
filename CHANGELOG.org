@@ -1,6 +1,10 @@
+* Version 0.5.0
+
+- Make backend configurable, support Ollama.
+
 * Version 0.4.1
 
-- Bug fixes
+- Bug fixes.
 
 * Version 0.4.0
 

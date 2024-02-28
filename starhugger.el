@@ -1,7 +1,7 @@
 ;;; starhugger.el --- Hugging Face/AI-powered text & code completion client  -*- lexical-binding: t; -*-
 
 ;; Version: 0.5.0-git
-;; Package-Requires: ((emacs "28.2") (compat "29.1.4.0") (dash "2.18.0") (s "1.13.1") (spinner "1.7.4"))
+;; Package-Requires: ((emacs "28.2") (compat "29.1.4.0") (dash "2.18.0") (s "1.13.1") (spinner "1.7.4") (request "0.3.2"))
 ;; Keywords: completion, convenience, languages
 ;; Homepage: https://gitlab.com/daanturo/starhugger.el
 
@@ -31,6 +31,8 @@
 (require 'compat)
 (require 'dash)
 (require 's)
+(require 'request)
+
 
 ;;;; Helpers
 
@@ -71,12 +73,12 @@ dynamically setting with (`encode-coding-string' ... \\='utf-8)."
 
 (defvar starhugger--model-config-presets
   '(("bigcode/starcoder" .
-     (:endpoint
+     (:HF-endpoint
       "https://api-inference.huggingface.co/models/bigcode/starcoder"
       :fill-tokens ("<fim_prefix>" "<fim_suffix>" "<fim_middle>")
       :stop-tokens ("<|endoftext|>")))
     ("codellama/CodeLlama-13b-hf" .
-     (:endpoint
+     (:HF-endpoint
       "https://api-inference.huggingface.co/models/codellama/CodeLlama-13b-hf"
       :fill-tokens ("<PRE>" "<SUF>" "<MID>")
       :stop-tokens ("<|endoftext|>" "<EOT>"))))
@@ -104,7 +106,7 @@ way)."
                         starhugger--model-config-presets
                         (list starhugger-model-id))))
            (setq starhugger-model-api-endpoint-url
-                 (map-nested-elt preset '(:endpoint)))
+                 (map-nested-elt preset '(:HF-endpoint)))
            (setq starhugger-fill-tokens (map-nested-elt preset '(:fill-tokens)))
            (setq starhugger-stop-tokens (map-nested-elt preset '(:stop-tokens))))))
 
@@ -191,7 +193,7 @@ Additionally prevent errors about multi-byte characters."
    object (apply #'json-serialize it args) (encode-coding-string it 'utf-8)))
 
 (defvar starhugger-debug nil)
-(defvar starhugger--last-request nil
+(defvar starhugger--last-returned-request nil
   "Last returned request info, for debugging.")
 
 (defvar starhugger-before-request-hook '()
@@ -348,27 +350,28 @@ may cause unexpected behaviors."
                       `(("Authorization" . ,(format "Bearer %s" it))))))))
       (when starhugger-debug
         (dlet ((starhugger--log-buffer " *starhugger sent request data*"))
-          (starhugger--log data)))
+          (starhugger--log starhugger-model-api-endpoint-url data)))
       (url-retrieve
        starhugger-model-api-endpoint-url
        (lambda (status)
          (-let* ((content
                   (and url-http-end-of-headers
                        (buffer-substring url-http-end-of-headers (point-max)))))
-           (setq starhugger--last-request
+           (setq starhugger--last-returned-request
                  (list
                   :response-content content
                   :send-data data
                   :response-status status))
            (when (or starhugger-debug (not url-http-end-of-headers))
              (starhugger--log
-              starhugger--last-request
-              :header (and url-http-end-of-headers
-                           (buffer-substring (point-min) url-http-end-of-headers))))
+              starhugger--last-returned-request
+              :header
+              (and url-http-end-of-headers
+                   (buffer-substring (point-min) url-http-end-of-headers))))
            (funcall callback content)))
        nil t))))
 
-(cl-defun starhugger-hugging-face-inference (prompt callback &rest args &key parameters options &allow-other-keys)
+(cl-defun starhugger-hugging-face-inference-api (prompt callback &rest args &key parameters options &allow-other-keys)
   (starhugger-HFI--request
    prompt
    (lambda (content)
@@ -382,10 +385,71 @@ may cause unexpected behaviors."
    :+parameters parameters
    :+options options))
 
+;;;;;; Ollama
+
+(defcustom starhugger-ollama-generate-api-url
+  "http://localhost:11434/api/generate"
+  "Ollama API's generation endpoint."
+  :group 'starhugger
+  :type 'string)
+
+(cl-defun starhugger-ollama-completion-api (prompt callback &rest args &key parameters options &allow-other-keys)
+  (-let* ((data
+           (starhugger--json-serialize
+            `((prompt . ,prompt)
+              (model . ,starhugger-model-id)
+              (stream . :false)))))
+    (when starhugger-debug
+      (dlet ((starhugger--log-buffer " *starhugger sent request data*"))
+        (starhugger--log starhugger-ollama-generate-api-url data)))
+    (request
+      starhugger-ollama-generate-api-url
+      :type "POST"
+      :data data
+      :success
+      (cl-function
+       (lambda (&rest returned &key data error-thrown response &allow-other-keys)
+         (-let* ((parsed
+                  (-some--> data (json-parse-string it :object-type 'alist)))
+                 (generated-lst (list (alist-get 'response parsed))))
+           (setq starhugger--last-returned-request
+                 (list
+                  :response-content returned
+                  :send-data data
+                  :response-status (request-response-status-code response)))
+           (when (or starhugger-debug (not url-http-end-of-headers))
+             (starhugger--log starhugger--last-returned-request :header))
+           (funcall callback generated-lst error-thrown)))))
+    ;; (dlet ((url-request-method "POST") (url-request-data data))
+    ;;   (url-retrieve
+    ;;    starhugger-ollama-generate-api-url
+    ;;    (lambda (status)
+    ;;      (-let* ((content
+    ;;               (and url-http-end-of-headers
+    ;;                    (buffer-substring url-http-end-of-headers (point-max))))
+    ;;              (parsed
+    ;;               (and content (json-parse-string content :object-type 'alist)))
+    ;;              (generated-lst (list (alist-get 'response parsed))))
+    ;;        (setq starhugger--last-returned-request
+    ;;              (list
+    ;;               :response-content content
+    ;;               :send-data data
+    ;;               :response-status status))
+    ;;        (when (or starhugger-debug (not url-http-end-of-headers))
+    ;;          (starhugger--log
+    ;;           starhugger--last-returned-request
+    ;;           :header
+    ;;           (and url-http-end-of-headers
+    ;;                (buffer-substring (point-min) url-http-end-of-headers))))
+    ;;        (funcall callback generated-lst nil)))
+    ;;    nil t))
+    ))
+
+
 ;;;;; Completion
 
 (defcustom starhugger-complete-backend-function
-  #'starhugger-hugging-face-inference
+  #'starhugger-hugging-face-inference-api
   "The backend for code suggestion.
 The function accepts those arguments: prompt (string), callback
 function (that accepts these argument: the model's list of
@@ -396,7 +460,8 @@ arguments."
   ;; TODO: should error data be handle in the callback or a separate argument
   ;; (callback function that handle errors separately).
   :group 'starhugger
-  :type 'function)
+  :type 'function
+  :options '(starhugger-ollama-generate-api-url starhugger-hugging-face-inference-api))
 
 (cl-defun starhugger--query-internal-1 (prompt callback &key +options +parameters display)
   (run-hooks 'starhugger-before-request-hook)
