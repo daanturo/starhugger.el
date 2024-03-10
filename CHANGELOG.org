@@ -1,6 +1,12 @@
 * Version 0.5.0
 
-- Make backend configurable, support Ollama.
+- Introduce configurable ~starhugger-complete-backend-function~ and support
+  Ollama.
+
+- Rename ~starhugger-additional-data-alist~ to
+  ~starhugger-hugging-face-additional-data-alist~.
+
+- Add ~request~ package as dependency.
 
 * Version 0.4.1
 
