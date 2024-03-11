@@ -4,7 +4,9 @@
   Ollama.
 
 - Rename ~starhugger-additional-data-alist~ to
-  ~starhugger-hugging-face-additional-data-alist~.
+  ~starhugger-hugging-face-additional-data-alist~,
+  ~starhugger-model-api-endpoint-url~ to
+  ~starhugger-hugging-face-model-api-endpoint-url~.
 
 - Add ~request~ package as dependency.
 
