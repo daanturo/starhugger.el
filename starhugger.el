@@ -363,18 +363,19 @@ may cause unexpected behaviors."
                (starhugger--json-serialize
                 `((inputs . ,prompt)
                   (parameters
-                   (max_new_tokens . ,max-new-tokens)
-                   (num_return_sequences . ,num-return-sequences)
+                   ,@(and max-new-tokens `((max_new_tokens . ,max-new-tokens)))
+                   ,@(and num-return-sequences
+                          `((num_return_sequences . ,num-return-sequences)))
                    ,@(and starhugger-retry-temperature-range
                           force-new
                           `((temperature . ,(starhugger--retry-temperature))))
                    ,@(alist-get
-                      starhugger-hugging-face-additional-data-alist 'parameters)
+                      'parameters starhugger-hugging-face-additional-data-alist)
                    (return_full_text . :false))
                   (options
                    ,@(and force-new '((use_cache . :false)))
                    ,@(alist-get
-                      starhugger-hugging-face-additional-data-alist 'options)))))))
+                      'options starhugger-hugging-face-additional-data-alist)))))))
     (dlet ((url-request-method (or method "POST"))
            (url-request-data data)
            (url-request-extra-headers
@@ -529,12 +530,7 @@ arguments.2"
                           (apply callback gen-texts cb-args))))
                      args)))
       (push cancel-fn starhugger--cancel-request-function-list)
-      (-let* ((proc (get-buffer-process cancel-fn)))
-        (set-process-query-on-exit-flag proc nil)
-        (when starhugger-debug
-          (set-process-plist
-           proc `(:prompt ,prompt :args ,args ,@(process-plist proc))))
-        cancel-fn))))
+      cancel-fn)))
 
 
 ;;;; Overlay inline suggestion
