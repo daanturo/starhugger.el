@@ -71,6 +71,14 @@ dynamically setting with (`encode-coding-string' ... \\='utf-8)."
   :group 'starhugger
   :type '(choice string function))
 
+(define-obsolete-variable-alias
+  'starhugger-model-api-endpoint-url
+  'starhugger-hugging-face-model-api-endpoint-url
+  "0.5.0")
+(defvar starhugger-hugging-face-model-api-endpoint-url nil)
+(defvar starhugger-fill-tokens)
+(defvar starhugger-stop-tokens)
+
 (defvar starhugger--model-config-presets
   '(("bigcode/starcoder" .
      (:HF-endpoint
@@ -84,13 +92,23 @@ dynamically setting with (`encode-coding-string' ... \\='utf-8)."
       :stop-tokens ("<|endoftext|>" "<EOT>"))))
   "Refer to https://github.com/huggingface/huggingface-vscode/blob/f044ff02f08e49a5da9849f34235fece4a32535b/src/configTemplates.ts#L17.")
 
-(define-obsolete-variable-alias
-  'starhugger-model-api-endpoint-url
-  'starhugger-hugging-face-model-api-endpoint-url
-  "0.5.0")
-(defvar starhugger-hugging-face-model-api-endpoint-url nil)
-(defvar starhugger-fill-tokens)
-(defvar starhugger-stop-tokens)
+(defun starhugger--model-id-set-fn (sym val)
+  (set-default-toplevel-value sym val)
+  (-when-let* ((preset
+                (alist-get val starhugger--model-config-presets
+                           nil nil
+                           (lambda (alist-car _)
+                             (cond
+                              ((and (string-search "/" alist-car)
+                                    (not (string-search "/" val)))
+                               (string-suffix-p (concat "/" val) alist-car
+                                                'ignore-case))
+                              (:else
+                               (string-equal-ignore-case alist-car val)))))))
+    (setq starhugger-hugging-face-model-api-endpoint-url
+          (map-nested-elt preset '(:HF-endpoint)))
+    (setq starhugger-fill-tokens (map-nested-elt preset '(:fill-tokens)))
+    (setq starhugger-stop-tokens (map-nested-elt preset '(:stop-tokens)))))
 
 (defcustom starhugger-model-id "bigcode/starcoder"
   "The language model's ID.
@@ -103,16 +121,7 @@ you don't need to customize this variable if they are set that
 way)."
   :group 'starhugger
   :type 'string
-  :set (lambda (sym val)
-         (set-default-toplevel-value sym val)
-         (-when-let* ((preset
-                       (map-nested-elt
-                        starhugger--model-config-presets
-                        (list starhugger-model-id))))
-           (setq starhugger-hugging-face-model-api-endpoint-url
-                 (map-nested-elt preset '(:HF-endpoint)))
-           (setq starhugger-fill-tokens (map-nested-elt preset '(:fill-tokens)))
-           (setq starhugger-stop-tokens (map-nested-elt preset '(:stop-tokens))))))
+  :set #'starhugger--model-id-set-fn)
 
 (defcustom starhugger-stop-tokens
   (map-nested-elt
@@ -357,7 +366,6 @@ may cause unexpected behaviors."
                                    num-return-sequences
                                    force-new
                                    &allow-other-keys)
-  "CALLBACK's arguments: the response's content."
   (-let* ((data
            (or data
                (starhugger--json-serialize
@@ -366,8 +374,8 @@ may cause unexpected behaviors."
                    ,@(and max-new-tokens `((max_new_tokens . ,max-new-tokens)))
                    ,@(and num-return-sequences
                           `((num_return_sequences . ,num-return-sequences)))
-                   ,@(and starhugger-retry-temperature-range
-                          force-new
+                   ,@(and force-new
+                          starhugger-retry-temperature-range
                           `((temperature . ,(starhugger--retry-temperature))))
                    ,@(alist-get
                       'parameters starhugger-hugging-face-additional-data-alist)
@@ -410,16 +418,19 @@ may cause unexpected behaviors."
           (kill-buffer req-buf))))))
 
 (cl-defun starhugger-hugging-face-inference-api (prompt callback &rest args &key &allow-other-keys)
-  (starhugger-HFI--request
-   prompt
-   (lambda (content)
-     (-let* ((parsed (json-parse-string content :object-type 'alist))
-             ((_ . err-msg) (and (listp parsed) (assoc 'error parsed)))
-             (generated-lst
-              (and (null err-msg)
-                   (-map
-                    (lambda (elem) (alist-get 'generated_text elem)) parsed))))
-       (funcall callback generated-lst :error err-msg)))))
+  (apply #'starhugger-HFI--request
+         prompt
+         (lambda (content)
+           (-let* ((parsed (json-parse-string content :object-type 'alist))
+                   ((_ . err-msg) (and (listp parsed) (assoc 'error parsed)))
+                   (generated-lst
+                    (and (null err-msg)
+                         (-map
+                          (lambda (elem)
+                            (alist-get 'generated_text elem))
+                          parsed))))
+             (funcall callback generated-lst :error err-msg)))
+         args))
 
 ;;;;;; Ollama
 
@@ -429,12 +440,36 @@ may cause unexpected behaviors."
   :group 'starhugger
   :type 'string)
 
-(cl-defun starhugger-ollama-completion-api (prompt callback &rest args &key parameters options model &allow-other-keys)
+(defcustom starhugger-ollama-additional-parameter-alist
+  '((options) (format . json) (stream . :false))
+  "Ollama API's advanced parameters.
+See https://github.com/ollama/ollama/blob/main/docs/api.md#parameters."
+  :group 'starhugger
+  :type 'alist)
+
+
+(cl-defun starhugger-ollama-completion-api (prompt
+                                            callback
+                                            &rest
+                                            args
+                                            &key
+                                            model
+                                            force-new
+                                            max-new-tokens
+                                            _num-return-sequences
+                                            &allow-other-keys)
   (-let* ((send-data
            (starhugger--json-serialize
             `((prompt . ,prompt)
               (model . ,(or model starhugger-model-id))
-              (stream . :false)))))
+              (options
+               ,@(and max-new-tokens `((num_predict . ,max-new-tokens)))
+               ,@(and force-new
+                      starhugger-retry-temperature-range
+                      `((temperature . ,(starhugger--retry-temperature))))
+               ,@(alist-get 'options starhugger-ollama-additional-parameter-alist))
+              (stream . :false)
+              ,@starhugger-ollama-additional-parameter-alist))))
     (starhugger--log-before-request starhugger-ollama-generate-api-url send-data)
     (-let* ((request-obj
              (request
