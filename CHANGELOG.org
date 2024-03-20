@@ -1,6 +1,6 @@
 * Version 0.5.0
 
-- Introduce configurable ~starhugger-complete-backend-function~ and support
+- Introduce configurable ~starhugger-completion-backend-function~ and support
   Ollama.
 
 - Rename ~starhugger-additional-data-alist~ to
@@ -18,7 +18,7 @@
 
 - Support ~codellama/CodeLlama-13b-hf~.
 
-- Obsolete ~starhugger-stop-token~ in favor of ~starhugger-stop-tokens~.
+- Make ~starhugger-stop-token~ obsolete in favor of ~starhugger-stop-tokens~.
 
 * Version 0.3.1
 

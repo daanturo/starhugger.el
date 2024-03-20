@@ -76,19 +76,22 @@ dynamically setting with (`encode-coding-string' ... \\='utf-8)."
   'starhugger-hugging-face-model-api-endpoint-url
   "0.5.0")
 (defvar starhugger-hugging-face-model-api-endpoint-url nil)
+(defvar starhugger-hugging-face-inference-api-base-url)
 (defvar starhugger-fill-tokens)
 (defvar starhugger-stop-tokens)
 
 (defvar starhugger--model-config-presets
-  '(("bigcode/starcoder" .
-     (:HF-endpoint
-      "https://api-inference.huggingface.co/models/bigcode/starcoder"
-      :fill-tokens ("<fim_prefix>" "<fim_suffix>" "<fim_middle>")
+  '(("starcoder" .
+     (:fill-tokens
+      ("<fim_prefix>" "<fim_suffix>" "<fim_middle>")
       :stop-tokens ("<|endoftext|>")))
-    ("codellama/CodeLlama-13b-hf" .
-     (:HF-endpoint
-      "https://api-inference.huggingface.co/models/codellama/CodeLlama-13b-hf"
-      :fill-tokens ("<PRE>" "<SUF>" "<MID>")
+    ("starcoder2" .
+     (:fill-tokens
+      ("<fim_prefix>" "<fim_suffix>" "<fim_middle>")
+      :stop-tokens ("<|endoftext|>")))
+    ("codellama" .
+     (:fill-tokens
+      ("<PRE>" "<SUF>" "<MID>")
       :stop-tokens ("<|endoftext|>" "<EOT>"))))
   "Refer to https://github.com/huggingface/huggingface-vscode/blob/f044ff02f08e49a5da9849f34235fece4a32535b/src/configTemplates.ts#L17.")
 
@@ -98,15 +101,15 @@ dynamically setting with (`encode-coding-string' ... \\='utf-8)."
                 (alist-get val starhugger--model-config-presets
                            nil nil
                            (lambda (alist-car _)
-                             (cond
-                              ((and (string-search "/" alist-car)
-                                    (not (string-search "/" val)))
-                               (string-suffix-p (concat "/" val) alist-car
-                                                'ignore-case))
-                              (:else
-                               (string-equal-ignore-case alist-car val)))))))
+                             ;; check if a model name in the preset (simpler
+                             ;; string) is a sub-word of the set model name
+                             (dlet ((case-fold-search t))
+                               (string-match-p
+                                (concat "\\b" alist-car "\\b")
+                                ;; ignore organization name
+                                (replace-regexp-in-string "^.*?/" "" val)))))))
     (setq starhugger-hugging-face-model-api-endpoint-url
-          (map-nested-elt preset '(:HF-endpoint)))
+          (concat starhugger-hugging-face-inference-api-base-url val))
     (setq starhugger-fill-tokens (map-nested-elt preset '(:fill-tokens)))
     (setq starhugger-stop-tokens (map-nested-elt preset '(:stop-tokens)))))
 
@@ -328,6 +331,13 @@ It should return 2 different responses, each with 2
 
 ;;;;;; Hugging Face inference API
 
+(defcustom starhugger-hugging-face-inference-api-base-url
+  "https://api-inference.huggingface.co/models/"
+  "Hugging Face inference API's base URL, to be concatenated with model ID.
+See https://huggingface.co/docs/api-inference/quicktour#running-inference-with-api-requests."
+  :group 'starhugger
+  :type 'string)
+
 (define-obsolete-variable-alias
   'starhugger-additional-data-alist
   'starhugger-hugging-face-additional-data-alist
@@ -441,7 +451,7 @@ may cause unexpected behaviors."
   :type 'string)
 
 (defcustom starhugger-ollama-additional-parameter-alist
-  '((options) (format . json) (stream . :false))
+  '((options) (stream . :false))
   "Ollama API's advanced parameters.
 See https://github.com/ollama/ollama/blob/main/docs/api.md#parameters."
   :group 'starhugger
@@ -449,16 +459,8 @@ See https://github.com/ollama/ollama/blob/main/docs/api.md#parameters."
 
 
 (cl-defun starhugger-ollama-completion-api (prompt
-                                            callback
-                                            &rest
-                                            args
-                                            &key
-                                            model
-                                            force-new
-                                            max-new-tokens
-                                            _num-return-sequences
-                                            &allow-other-keys)
-  (-let* ((send-data
+                                            callback &rest args &key model force-new max-new-tokens &allow-other-keys)
+  (-let* ((sending-data
            (starhugger--json-serialize
             `((prompt . ,prompt)
               (model . ,(or model starhugger-model-id))
@@ -470,12 +472,13 @@ See https://github.com/ollama/ollama/blob/main/docs/api.md#parameters."
                ,@(alist-get 'options starhugger-ollama-additional-parameter-alist))
               (stream . :false)
               ,@starhugger-ollama-additional-parameter-alist))))
-    (starhugger--log-before-request starhugger-ollama-generate-api-url send-data)
+    (starhugger--log-before-request
+     starhugger-ollama-generate-api-url sending-data)
     (-let* ((request-obj
              (request
                starhugger-ollama-generate-api-url
                :type "POST"
-               :data send-data
+               :data sending-data
                :complete
                (cl-function
                 (lambda (&rest
@@ -495,11 +498,16 @@ See https://github.com/ollama/ollama/blob/main/docs/api.md#parameters."
                     (starhugger--log-after-request
                      (list
                       :response-content returned
-                      :send-data send-data
+                      :send-data sending-data
                       :response-status
                       (request-response-status-code response))
                      error-thrown)
-                    (funcall callback generated-lst :error error-thrown)))))))
+                    (funcall callback
+                             generated-lst
+                             :error
+                             (and error-thrown
+                                  `((error-thrown ,error-thrown)
+                                    (data ,data))))))))))
       (lambda ()
         (-let* ((buf (request-response--buffer request-obj)))
           (delete-process (get-buffer-process buf))
@@ -508,7 +516,7 @@ See https://github.com/ollama/ollama/blob/main/docs/api.md#parameters."
 
 ;;;;; Completion
 
-(defcustom starhugger-complete-backend-function
+(defcustom starhugger-completion-backend-function
   #'starhugger-hugging-face-inference-api
   "The backend for code suggestion.
 The function accepts those arguments: prompt (string), callback
@@ -540,7 +548,7 @@ arguments.2"
           (spin-obj
            (and spin starhugger-enable-spinner (starhugger--spinner-start))))
     (letrec ((cancel-fn
-              (apply starhugger-complete-backend-function
+              (apply starhugger-completion-backend-function
                      prompt
                      (cl-function
                       (lambda (gen-texts
@@ -559,7 +567,8 @@ arguments.2"
                            (if error
                                (cons err-str gen-texts)
                              gen-texts)
-                           :display display)
+                           :display display
+                           :parameters args)
                           (when error
                             (message "`starhugger' response error: %s" err-str))
                           (apply callback gen-texts cb-args))))
