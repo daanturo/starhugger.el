@@ -5,10 +5,14 @@
 
 - Rename ~starhugger-additional-data-alist~ to
   ~starhugger-hugging-face-additional-data-alist~,
-  ~starhugger-model-api-endpoint-url~ to
-  ~starhugger-hugging-face-model-api-endpoint-url~.
+  ~starhugger-model-api-endpoint-url~ to ~starhugger-hugging-face-api-url~ (to
+  distinguish with newly added Ollama options).
 
 - Add ~request~ package as dependency.
+
+- New customizable variables: ~starhugger-ollama-generate-api-url~,
+  ~starhugger-ollama-additional-parameter-alist~,
+  ~starhugger-completion-backend-function~.
 
 * Version 0.4.1
 
