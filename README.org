@@ -2,8 +2,14 @@
 
 
 - Hugging Face/AI-powered text & code completion client (unofficial).
-Currently supported model(s): [[https://huggingface.co/bigcode/starcoder][bigcode/starcoder]],
-[[https://huggingface.co/codellama/CodeLlama-13b-hf][codellama/CodeLlama-13b-hf]].
+Best supported model(s):
+[[https://huggingface.co/bigcode/starcoder][Starcoder]],
+[[https://huggingface.co/codellama/CodeLlama-13b-hf][CodeLlama]],
+[[https://huggingface.co/bigcode/starcoder2-15b][Starcoder2]]
+
+
+- Also supports using [[https://github.com/ollama/ollama][Ollama]] as a completion backend.
+
 
 - [[https://github.com/daanturo/starhugger.el/assets/32123754/5ff826ad-5644-4b15-a811-ad8f3fc78979][Demo]]:
 https://github.com/daanturo/starhugger.el/assets/32123754/5ff826ad-5644-4b15-a811-ad8f3fc78979
@@ -19,7 +25,6 @@ Starhugger is installable from [[https://melpa.org/#/starhugger][MELPA - Starhug
 Of if you want to install from source, add one of the following to your configuration:
 
 #+begin_src elisp
-
 ;; package-vc.el (built-in from Emacs 29 and above)
 (unless (package-installed-p 'starhugger)
   (package-vc-install '(starhugger :url "https://gitlab.com/daanturo/starhugger.el")))
@@ -37,15 +42,13 @@ Of if you want to install from source, add one of the following to your configur
 
 Or any package manager of your choice.
 
-This package also requires those dependencies: [[https://github.com/emacs-compat/compat][compat]], [[https://github.com/magnars/dash.el][dash]], [[https://github.com/Malabarba/spinner.el][spinner]], [[https://github.com/magnars/s.el][s.el]].
-
 * Usage
 
 The performance may not be great, but they are asynchronous so Emacs won't be blocked.
 
 ** Primary commands
 
-- Previewing overlay: ~starhugger-trigger-suggestion~ will display the suggestion.
+- Previewing overlay: ~starhugger-trigger-suggestion~ to display the suggestion.
 
 ~M-x~ ~starhugger-show-next-suggestion~ and ~starhugger-show-prev-suggestion~ to cycle suggestions.
 
@@ -53,7 +56,7 @@ The performance may not be great, but they are asynchronous so Emacs won't be bl
 
 ~starhugger-dismiss-suggestion~ (bound to =C-g= by default when showing) to cancel.
 
-There is also ~starhugger-auto-mode~ (non-global minor mode) but its usage isn't prioritized because of the limit rate.
+There is also ~starhugger-auto-mode~ (non-global minor mode) but its usage isn't prioritized for the Hugging Face text inference backend because of the limit rate.
 
 
 ** Example configuration
@@ -61,7 +64,7 @@ There is also ~starhugger-auto-mode~ (non-global minor mode) but its usage isn't
 #+begin_src elisp
 (setq starhugger-hugging-face-api-token "hf_ your token here")
 
-;; Use https://huggingface.co/codellama/CodeLlama-13b-hf, best to be set before loading this package
+;; Optionally use https://huggingface.co/codellama/CodeLlama-13b-hf, best to be set before loading this package
 (setq starhugger-model-id "codellama/CodeLlama-13b-hf")
 
 (global-set-key (kbd "M-\\") #'starhugger-trigger-suggestion)
@@ -72,13 +75,20 @@ There is also ~starhugger-auto-mode~ (non-global minor mode) but its usage isn't
   (define-key starhugger-inlining-mode-map (kbd "M-[") (starhugger-inline-menu-item #'starhugger-show-prev-suggestion))
   (define-key starhugger-inlining-mode-map (kbd "M-]") (starhugger-inline-menu-item #'starhugger-show-next-suggestion))
   (define-key starhugger-inlining-mode-map (kbd "M-f") (starhugger-inline-menu-item #'starhugger-accept-suggestion-by-word)))
-
 #+end_src
 
-Additional settings
+Use the Ollama local backend:
 
 #+begin_src elisp
+(setq starhugger-completion-backend-function #'starhugger-ollama-completion-api)
 
+;; use the Customization interface for Emacs version < 29
+(setopt starhugger-model-id "starcoder2")
+#+end_src
+
+Additional settings:
+
+#+begin_src elisp
 ;; For evil users, dismiss after pressing ESC twice
 (defvar my-evil-force-normal-state-hook '())
 (defun my-evil-run-force-normal-state-hook-after-a (&rest _)
@@ -116,7 +126,6 @@ Additional settings
         (blamer-mode 1)))))
 
 (add-hook 'starhugger-inlining-mode-hook #'my-starhugger-inlining-mode-h)
-
 #+end_src
 
 
@@ -124,7 +133,7 @@ Additional settings
 ** Notes
 
 
-Remember to set ~starhugger-hugging-face-api-token~ (from [[https://huggingface.co/settings/tokens]]), otherwise you may easily get hit by the limit rate.
+When using the Hugging Face text inference backend (the default) remember to set ~starhugger-hugging-face-api-token~ (from [[https://huggingface.co/settings/tokens]]), otherwise you may easily get hit by the limit rate.
 
 
 *** Known quirks
@@ -162,4 +171,4 @@ Emacs overlays are used under the hood to display inline suggestion, there are s
 
 - ½ Find a way to take other files into account [[https://thakkarparth007.github.io/copilot-explorer/posts/copilot-internals.html][Copilot Internals | thakkarparth007.github.io]]: current experimental implementation isn't as sophisticated, just a dumb grep - regex hellish madness on the codebase to find "relevant" symbols (again, relevancy is measure by naive line similarities to the current file name, no semantic analysis or AI involved here); also the syntax to expose inter-file context isn't known yet, I made up using comments.
 
-- ? Separate frontend (inline suggestion interface) and backend (the text completion provider), and allow multiple backends, not just Hugging Face's inference API.
+- ✓ Separate frontend (inline suggestion interface) and backend (the text completion provider), and allow multiple backends, not just Hugging Face's inference API.
