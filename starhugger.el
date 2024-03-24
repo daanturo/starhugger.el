@@ -59,7 +59,10 @@ window of BUFFER-OR-NAME when at the buffer end, if any."
 
 ;;;; Making requests
 
-(defcustom starhugger-api-token nil
+(define-obsolete-variable-alias
+  'starhugger-api-token 'starhugger-hugging-face-api-token "0.5.0")
+
+(defcustom starhugger-hugging-face-api-token nil
   "Hugging Face user access token.
 Generate yours at URL `https://huggingface.co/settings/tokens'.
 Can be either a direct string, or a function to be called with no
@@ -356,10 +359,10 @@ may cause unexpected behaviors."
 
 (defun starhugger--HFI-get-api-token-as-string ()
   (cond
-   ((stringp starhugger-api-token)
-    starhugger-api-token)
-   ((functionp starhugger-api-token)
-    (funcall starhugger-api-token))))
+   ((stringp starhugger-hugging-face-api-token)
+    starhugger-hugging-face-api-token)
+   ((functionp starhugger-hugging-face-api-token)
+    (funcall starhugger-hugging-face-api-token))))
 
 (cl-defun
     starhugger-HFI--request
@@ -540,46 +543,43 @@ that terminates the running request when called."
   :type 'function
   :options '(starhugger-ollama-completion-api starhugger-hugging-face-inference-api))
 
-(cl-defun starhugger--query-internal (prompt callback &rest args &key display spin &allow-other-keys)
-  "CALLBACK is called with the generated text list.
+(cl-defun starhugger--query-internal (prompt callback &rest args &key display spin backend &allow-other-keys)
+  "CALLBACK is called with the generated text list and a plist.
 PROMPT is the prompt to use. DISPLAY is whether to display the
 generated text in a buffer. SPIN is whether to show a spinner.
-FORCE-NEW is whether to force a new request. NUM is the number of
-responses to return. ARGS are the arguments to pass to
-`starhugger-HFI--request'. See `starhugger-HFI--request' for the other
-arguments.2"
+ARGS are the arguments to pass to the BACKEND (or
+`starhugger-completion-backend-function')"
   (run-hooks 'starhugger-before-request-hook)
   (-let* ((call-buf (current-buffer))
           (spin-obj
            (and spin starhugger-enable-spinner (starhugger--spinner-start))))
-    (letrec ((cancel-fn
-              (plist-get
-               (apply starhugger-completion-backend-function
-                      prompt
-                      (cl-function
-                       (lambda (gen-texts
-                                &rest cb-args &key error &allow-other-keys)
-                         (when (buffer-live-p call-buf)
-                           (with-current-buffer call-buf
-                             (setq starhugger--cancel-request-function-list
-                                   (delete
-                                    cancel-fn
-                                    starhugger--cancel-request-function-list))))
-                         (when spin-obj
-                           (funcall spin-obj))
-                         (-let* ((err-str (format "%S" error)))
-                           (starhugger--record-generated
-                            prompt
-                            (if error
-                                (cons err-str gen-texts)
-                              gen-texts)
-                            :display display
-                            :parameters args)
-                           (when error
-                             (message "`starhugger' response error: %s" err-str))
-                           (apply callback gen-texts cb-args))))
-                      args)
-               :cancel-fn)))
+    (letrec ((returned
+              (apply (or backend starhugger-completion-backend-function)
+                     prompt
+                     (cl-function
+                      (lambda (gen-texts
+                               &rest cb-args &key error &allow-other-keys)
+                        (when (buffer-live-p call-buf)
+                          (with-current-buffer call-buf
+                            (setq starhugger--cancel-request-function-list
+                                  (delete
+                                   (plist-get returned :cancel-fn)
+                                   starhugger--cancel-request-function-list))))
+                        (when spin-obj
+                          (funcall spin-obj))
+                        (-let* ((err-str (format "%S" error)))
+                          (starhugger--record-generated
+                           prompt
+                           (if error
+                               (cons err-str gen-texts)
+                             gen-texts)
+                           :display display
+                           :parameters args)
+                          (when error
+                            (message "`starhugger' response error: %s" err-str))
+                          (apply callback gen-texts cb-args))))
+                     args))
+             (cancel-fn (plist-get returned :cancel-fn)))
       (push cancel-fn starhugger--cancel-request-function-list)
       cancel-fn)))
 
@@ -956,7 +956,7 @@ dependencies. Also remember to reduce
     (elt num-or-list 0))))
 
 ;;;###autoload
-(cl-defun starhugger-trigger-suggestion (&key interact force-new num prompt-fn max-new-tokens)
+(cl-defun starhugger-trigger-suggestion (&key interact force-new num prompt-fn max-new-tokens backend)
   "Show AI-powered code suggestions as overlays.
 When an inline suggestion is already showing, new suggestions
 will be fetched, you can switch to them by calling
@@ -1009,7 +1009,8 @@ fetch different responses. Non-nil INTERACT: show spinner."
                          (starhugger--get-from-num-or-list
                           starhugger-max-new-tokens
                           interact))
-                     :num-return-sequences num))))
+                     :num-return-sequences num
+                     :backend backend))))
               (funcall func 1))))))
     (funcall prompt-fn callback)))
 

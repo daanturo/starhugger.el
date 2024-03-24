@@ -59,7 +59,7 @@ There is also ~starhugger-auto-mode~ (non-global minor mode) but its usage isn't
 ** Example configuration
 
 #+begin_src elisp
-(setq starhugger-api-token "hf_ your token here")
+(setq starhugger-hugging-face-api-token "hf_ your token here")
 
 ;; Use https://huggingface.co/codellama/CodeLlama-13b-hf, best to be set before loading this package
 (setq starhugger-model-id "codellama/CodeLlama-13b-hf")
@@ -124,7 +124,7 @@ Additional settings
 ** Notes
 
 
-Remember to set ~starhugger-api-token~ (from [[https://huggingface.co/settings/tokens]]), otherwise you may easily get hit by the limit rate.
+Remember to set ~starhugger-hugging-face-api-token~ (from [[https://huggingface.co/settings/tokens]]), otherwise you may easily get hit by the limit rate.
 
 
 *** Known quirks
