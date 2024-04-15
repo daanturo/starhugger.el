@@ -97,6 +97,11 @@ See https://huggingface.co/docs/api-inference/quicktour#running-inference-with-a
      (:fill-tokens
       ("<fim_prefix>" "<fim_suffix>" "<fim_middle>")
       :stop-tokens ("<|endoftext|>")))
+    ;; TODO: "<|file_separator|>" support?
+    ("\\bcodegemma\\b" .
+     (:fill-tokens
+      ("<fim_prefix>" "<fim_suffix>" "<fim_middle>")
+      :stop-tokens '()))
     ("\\bcodellama\\b" .
      (:fill-tokens
       ("<PRE>" "<SUF>" "<MID>")
@@ -984,8 +989,9 @@ fetch different responses. Non-nil INTERACT: show spinner."
                   (lambda (fetch-time)
                     (starhugger--query-internal
                      prompt
-                     (lambda (gen-texts &rest _)
-                       (when (buffer-live-p call-buf)
+                     (lambda (gen-texts &rest returned-args)
+                       (when (and (buffer-live-p call-buf)
+                                  (not (plist-get returned-args :error)))
                          (with-current-buffer call-buf
                            (-let* ((suggt-1st (-first-item gen-texts)))
                              (starhugger--add-to-suggestion-list gen-texts state)
