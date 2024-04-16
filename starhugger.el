@@ -93,16 +93,16 @@ See https://huggingface.co/docs/api-inference/quicktour#running-inference-with-a
   :type 'string)
 
 (defvar starhugger--model-config-presets
-  '(("\\bstarcoder[0-9]+\\b" .
+  '(("\\bStarcoder[0-9]+\\b" .
      (:fill-tokens
       ("<fim_prefix>" "<fim_suffix>" "<fim_middle>")
       :stop-tokens ("<|endoftext|>")))
     ;; TODO: "<|file_separator|>" support?
-    ("\\bcodegemma\\b" .
+    ("\\bCode\\b?Gemma\\b" .
      (:fill-tokens
       ("<fim_prefix>" "<fim_suffix>" "<fim_middle>")
-      :stop-tokens '()))
-    ("\\bcodellama\\b" .
+      :stop-tokens ()))
+    ("\\bCode\\b?Llama\\b" .
      (:fill-tokens
       ("<PRE>" "<SUF>" "<MID>")
       :stop-tokens ("<|endoftext|>" "<EOT>"))))
@@ -110,19 +110,21 @@ See https://huggingface.co/docs/api-inference/quicktour#running-inference-with-a
 
 (defun starhugger--model-id-set-fn (sym val)
   (set-default-toplevel-value sym val)
-  (-when-let* ((preset
-                (alist-get val starhugger--model-config-presets
-                           nil nil
-                           (lambda (alist-car _)
-                             (dlet ((case-fold-search t))
-                               (string-match-p
-                                alist-car
-                                ;; ignore organization name
-                                (replace-regexp-in-string "^.*?/" "" val)))))))
-    (setq starhugger-hugging-face-api-url
-          (concat starhugger-hugging-face-api-base-url val))
-    (setq starhugger-fill-tokens (map-nested-elt preset '(:fill-tokens)))
-    (setq starhugger-stop-tokens (map-nested-elt preset '(:stop-tokens)))))
+  (save-match-data
+    (-when-let* ((preset
+                  (alist-get val starhugger--model-config-presets
+                             nil nil
+                             (lambda (alist-car _)
+                               (dlet ((case-fold-search t))
+                                 (string-match
+                                  alist-car
+                                  ;; ignore organization name
+                                  (replace-regexp-in-string
+                                   "^.*?/" "" val)))))))
+      (setq starhugger-hugging-face-api-url
+            (concat starhugger-hugging-face-api-base-url val))
+      (setq starhugger-fill-tokens (map-nested-elt preset '(:fill-tokens)))
+      (setq starhugger-stop-tokens (map-nested-elt preset '(:stop-tokens))))))
 
 (defcustom starhugger-model-id "bigcode/starcoder"
   "The language model's ID.
