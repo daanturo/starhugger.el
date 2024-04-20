@@ -3,7 +3,6 @@
 
 - Hugging Face/AI-powered text & code completion client (unofficial).
 Best supported model(s):
-[[https://huggingface.co/bigcode/starcoder][Starcoder]],
 [[https://huggingface.co/codellama/CodeLlama-13b-hf][CodeLlama]],
 [[https://huggingface.co/bigcode/starcoder2-15b][Starcoder2]]
 

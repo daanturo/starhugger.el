@@ -126,7 +126,7 @@ See https://huggingface.co/docs/api-inference/quicktour#running-inference-with-a
       (setq starhugger-fill-tokens (map-nested-elt preset '(:fill-tokens)))
       (setq starhugger-stop-tokens (map-nested-elt preset '(:stop-tokens))))))
 
-(defcustom starhugger-model-id "bigcode/starcoder"
+(defcustom starhugger-model-id "bigcode/starcoder2-15b"
   "The language model's ID.
 If you want to use one of the configuration presets, set this
 before loading `starhugger.el' or use `setopt' (or Emacs's
