@@ -234,7 +234,7 @@ Additionally prevent errors about multi-byte characters."
 
 (defvar starhugger--record-heading-beg "#*> ")
 
-(cl-defun starhugger--record-generated (prompt parsed-response-list &key display parameters)
+(cl-defun starhugger--record-generated (prompt parsed-response-list &rest args &key display &allow-other-keys)
   (-let* ((buf
            (or (get-buffer starhugger-generated-buffer)
                (prog1 (get-buffer-create starhugger-generated-buffer)
@@ -242,14 +242,15 @@ Additionally prevent errors about multi-byte characters."
                    (setq-local outline-regexp
                                (regexp-quote starhugger--record-heading-beg))
                    (setq-local window-point-insertion-type t))))))
-    (starhugger--with-buffer-scrolling buf
+    (starhugger--with-buffer-scrolling
+        buf
       (dlet ((inhibit-read-only t))
 
         (goto-char (point-max))
         (insert
          (starhugger--record-propertize
           (concat starhugger--record-heading-beg "INPUT to API: ")))
-        (insert (format "(with parameters: %s)" parameters) "\n\n")
+        (insert (format "(info: %S)" args) "\n\n")
         (insert prompt)
         (insert "\n\n")
 
@@ -371,51 +372,44 @@ may cause unexpected behaviors."
    ((functionp starhugger-hugging-face-api-token)
     (funcall starhugger-hugging-face-api-token))))
 
-(cl-defun
-    starhugger-HFI--request
-    (prompt
-     callback
-     &key
-     data
-     headers
-     method
-     max-new-tokens
-     num-return-sequences
-     force-new
-     url
-     &allow-other-keys)
+(cl-defun starhugger-HFI--request (prompt
+                                   callback
+                                   &key
+                                   data
+                                   headers
+                                   method
+                                   max-new-tokens
+                                   num-return-sequences
+                                   force-new
+                                   url
+                                   &allow-other-keys)
   (-let* ((data
            (or data
                (starhugger--json-serialize
                 `((inputs . ,prompt)
                   (parameters
-                   ,@
-                   (and max-new-tokens `((max_new_tokens . ,max-new-tokens)))
-                   ,@
-                   (and num-return-sequences
-                        `((num_return_sequences . ,num-return-sequences)))
-                   ,@
-                   (and force-new
-                        starhugger-retry-temperature-range
-                        `((temperature . ,(starhugger--retry-temperature))))
-                   ,@
-                   (alist-get
-                    'parameters starhugger-hugging-face-additional-data-alist)
+                   ,@(and max-new-tokens `((max_new_tokens . ,max-new-tokens)))
+                   ,@(and num-return-sequences
+                          `((num_return_sequences . ,num-return-sequences)))
+                   ,@(and force-new
+                          starhugger-retry-temperature-range
+                          `((temperature . ,(starhugger--retry-temperature))))
+                   ,@(alist-get
+                      'parameters starhugger-hugging-face-additional-data-alist)
                    (return_full_text . :false))
                   (options
-                   ,@ (and force-new '((use_cache . :false))) ,@
-                   (alist-get
-                    'options starhugger-hugging-face-additional-data-alist))))))
+                   ,@(and force-new '((use_cache . :false)))
+                   ,@(alist-get
+                      'options starhugger-hugging-face-additional-data-alist))))))
           (url (or url starhugger-hugging-face-api-url)))
     (dlet ((url-request-method (or method "POST"))
            (url-request-data data)
            (url-request-extra-headers
             (or headers
                 `(("Content-Type" . "application/json")
-                  ,@
-                  (-some-->
-                      (starhugger--HFI-get-api-token-as-string)
-                    `(("Authorization" . ,(format "Bearer %s" it))))))))
+                  ,@(-some-->
+                        (starhugger--HFI-get-api-token-as-string)
+                      `(("Authorization" . ,(format "Bearer %s" it))))))))
       (starhugger--log-before-request url data)
       (-let* ((req-buf
                (url-retrieve
@@ -434,7 +428,7 @@ may cause unexpected behaviors."
                      :header
                      (buffer-substring-no-properties
                       (point-min) (or url-http-end-of-headers (point-max))))
-                    (funcall callback content)))
+                    (funcall callback content :url url)))
                 nil t)))
         (list
          :cancel-fn
@@ -445,16 +439,17 @@ may cause unexpected behaviors."
 (cl-defun starhugger-hugging-face-inference-api (prompt callback &rest args &key &allow-other-keys)
   (apply #'starhugger-HFI--request
          prompt
-         (lambda (content)
-           (-let* ((parsed (json-parse-string content :object-type 'alist))
-                   ((_ . err-msg) (and (listp parsed) (assoc 'error parsed)))
-                   (generated-lst
-                    (and (null err-msg)
-                         (-map
-                          (lambda (elem)
-                            (alist-get 'generated_text elem))
-                          parsed))))
-             (funcall callback generated-lst :error err-msg)))
+         (cl-function
+          (lambda (content &key url)
+            (-let* ((parsed (json-parse-string content :object-type 'alist))
+                    ((_ . err-msg) (and (listp parsed) (assoc 'error parsed)))
+                    (generated-lst
+                     (and (null err-msg)
+                          (-map
+                           (lambda (elem)
+                             (alist-get 'generated_text elem))
+                           parsed))))
+              (funcall callback generated-lst :error err-msg :url url))))
          args))
 
 ;;;;;; Ollama
@@ -475,10 +470,11 @@ See https://github.com/ollama/ollama/blob/main/docs/api.md#parameters."
 
 (cl-defun starhugger-ollama-completion-api (prompt
                                             callback &rest args &key model force-new max-new-tokens &allow-other-keys)
-  (-let* ((sending-data
+  (-let* ((model (or model starhugger-model-id))
+          (sending-data
            (starhugger--json-serialize
             `((prompt . ,prompt)
-              (model . ,(or model starhugger-model-id))
+              (model . ,model)
               (options
                ,@(and max-new-tokens `((num_predict . ,max-new-tokens)))
                ,@(and force-new
@@ -519,6 +515,7 @@ See https://github.com/ollama/ollama/blob/main/docs/api.md#parameters."
                      error-thrown)
                     (funcall callback
                              generated-lst
+                             :model model
                              :error
                              (and error-thrown
                                   `((error-thrown ,error-thrown)
@@ -559,9 +556,10 @@ ARGS are the arguments to pass to the BACKEND (or
   (run-hooks 'starhugger-before-request-hook)
   (-let* ((call-buf (current-buffer))
           (spin-obj
-           (and spin starhugger-enable-spinner (starhugger--spinner-start))))
+           (and spin starhugger-enable-spinner (starhugger--spinner-start)))
+          (backend (or backend starhugger-completion-backend-function)))
     (letrec ((returned
-              (apply (or backend starhugger-completion-backend-function)
+              (apply backend
                      prompt
                      (cl-function
                       (lambda (gen-texts
@@ -577,11 +575,11 @@ ARGS are the arguments to pass to the BACKEND (or
                         (-let* ((err-str (format "%S" error)))
                           (starhugger--record-generated
                            prompt
-                           (if error
-                               (cons err-str gen-texts)
-                             gen-texts)
-                           :display display
-                           :parameters args)
+                           gen-texts
+                           :parameters args
+                           :other-info cb-args
+                           :backend backend
+                           :display display)
                           (when error
                             (message "`starhugger' response error: %s" err-str))
                           (apply callback gen-texts cb-args))))
