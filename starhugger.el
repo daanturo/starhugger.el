@@ -102,6 +102,10 @@ See https://huggingface.co/docs/api-inference/quicktour#running-inference-with-a
      (:fill-tokens
       ("<fim_prefix>" "<fim_suffix>" "<fim_middle>")
       :stop-tokens ()))
+    ("\\bDeepseek\\b" .
+     (:fill-tokens
+      ("<｜fim▁begin｜>" "<｜fim▁hole｜>" "<｜fim▁end｜>")
+      :stop-tokens ("<｜eos▁token｜>")))
     ("\\bCode\\b?Llama\\b" .
      (:fill-tokens
       ("<PRE>" "<SUF>" "<MID>")
