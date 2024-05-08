@@ -230,8 +230,14 @@ Additionally prevent errors about multi-byte characters."
 (defvar starhugger-before-request-hook '()
   "Hook run before making an HTTP request.")
 
-(defvar-local starhugger--current-request-buffer-list '())
-(defvar-local starhugger--cancel-request-function-list '())
+(defvar starhugger--running-request-table--table nil
+  "Keys are buffers.")
+(defun starhugger--running-request-table ()
+  (unless starhugger--running-request-table--table
+    (setq starhugger--running-request-table--table
+          (make-hash-table :test #'equal)))
+  starhugger--running-request-table--table)
+
 
 (defun starhugger--record-propertize (str)
   (propertize str 'face '(:foreground "yellow" :weight bold)))
@@ -245,7 +251,8 @@ Additionally prevent errors about multi-byte characters."
                  (with-current-buffer starhugger-generated-buffer
                    (setq-local outline-regexp
                                (regexp-quote starhugger--record-heading-beg))
-                   (setq-local window-point-insertion-type t))))))
+                   (setq-local window-point-insertion-type t)
+                   (read-only-mode))))))
     (starhugger--with-buffer-scrolling
         buf
       (dlet ((inhibit-read-only t))
@@ -415,7 +422,7 @@ may cause unexpected behaviors."
                         (starhugger--HFI-get-api-token-as-string)
                       `(("Authorization" . ,(format "Bearer %s" it))))))))
       (starhugger--log-before-request url data)
-      (-let* ((req-buf
+      (-let* ((request-buf
                (url-retrieve
                 url
                 (lambda (status)
@@ -433,12 +440,9 @@ may cause unexpected behaviors."
                      (buffer-substring-no-properties
                       (point-min) (or url-http-end-of-headers (point-max))))
                     (funcall callback content :url url)))
-                nil t)))
-        (list
-         :cancel-fn
-         (lambda ()
-           (delete-process (get-buffer-process req-buf))
-           (kill-buffer req-buf)))))))
+                nil t))
+              (request-proc (get-buffer-process request-buf)))
+        (list :process request-proc)))))
 
 (cl-defun starhugger-hugging-face-inference-api (prompt callback &rest args &key &allow-other-keys)
   (apply #'starhugger-HFI--request
@@ -523,13 +527,10 @@ See https://github.com/ollama/ollama/blob/main/docs/api.md#parameters."
                              :error
                              (and error-thrown
                                   `((error-thrown ,error-thrown)
-                                    (data ,data))))))))))
-      (list
-       :cancel-fn
-       (lambda ()
-         (-let* ((buf (request-response--buffer request-obj)))
-           (delete-process (get-buffer-process buf))
-           (kill-buffer buf)))))))
+                                    (data ,data)))))))))
+            (request-buf (request-response--buffer request-obj))
+            (request-proc (get-buffer-process request-buf)))
+      (list :process request-proc :request-response request-obj))))
 
 
 ;;;;; Completion
@@ -546,7 +547,10 @@ model; and other optional arguments: `:force-new',
 `:max-new-tokens', `:num-return-sequences'.
 
 It must return a plist that contains: `:cancel-fn': a function
-that terminates the running request when called."
+that terminates the running request when called, and/or
+`:process': the process to be terminate to cancel the
+request (calling :cancel-fn is prioritized over killing :process,
+only one in two of them is required)."
   :group 'starhugger
   :type 'function
   :options '(starhugger-ollama-completion-api starhugger-hugging-face-inference-api))
@@ -568,12 +572,10 @@ ARGS are the arguments to pass to the BACKEND (or
                      (cl-function
                       (lambda (gen-texts
                                &rest cb-args &key error &allow-other-keys)
-                        (when (buffer-live-p call-buf)
-                          (with-current-buffer call-buf
-                            (setq starhugger--cancel-request-function-list
-                                  (delete
-                                   (plist-get returned :cancel-fn)
-                                   starhugger--cancel-request-function-list))))
+                        (cl-callf
+                            (lambda (lst) (delete returned lst))
+                            (gethash call-buf (starhugger--running-request-table)
+                                     '()))
                         (when spin-obj
                           (funcall spin-obj))
                         (-let* ((err-str (format "%S" error)))
@@ -587,10 +589,9 @@ ARGS are the arguments to pass to the BACKEND (or
                           (when error
                             (message "`starhugger' response error: %s" err-str))
                           (apply callback gen-texts cb-args))))
-                     args))
-             (cancel-fn (plist-get returned :cancel-fn)))
-      (push cancel-fn starhugger--cancel-request-function-list)
-      cancel-fn)))
+                     args)))
+      (push returned (gethash call-buf (starhugger--running-request-table) '()))
+      returned)))
 
 
 ;;;; Overlay inline suggestion
@@ -1034,16 +1035,39 @@ fetch different responses. Non-nil INTERACT: show spinner."
                  starhugger-numbers-of-suggestions-to-fetch
                  nil))))))
 
+(defun starhugger--cancel-request (plist)
+  (-let* (((&plist :cancel-fn cancel-fn :process process) plist))
+    (cond
+     (cancel-fn
+      (funcall cancel-fn))
+     (process
+      (dlet ((kill-buffer-query-functions '()))
+        (-let* ((proc-buf (process-buffer process)))
+          (delete-process process)
+          (when proc-buf
+            (kill-buffer proc-buf))))))))
+
+(defun starhugger--cancel-requests-in-buffer (buf &optional plist-lst)
+  (dolist (plist
+           (or plist-lst (gethash buf (starhugger--running-request-table) '())))
+    (starhugger--cancel-request plist)
+    (remhash buf (starhugger--running-request-table))))
+
+(defun starhugger-cancel-all-requests-globally ()
+  "Terminate running requests in all buffers."
+  (interactive)
+  (maphash
+   (lambda (buf plist-lst)
+     (starhugger--cancel-requests-in-buffer buf plist-lst))
+   (starhugger--running-request-table)))
+
 (defun starhugger-dismiss-suggestion (&optional stop-fetching)
   "Clear current suggestion.
-Non-nil STOP-FETCHING (interactively, true by default): also kill
-unfinished fetches."
+Non-nil STOP-FETCHING (interactively, true by default): also
+cancel unfinished fetches."
   (interactive (list (not current-prefix-arg)))
   (when stop-fetching
-    (dlet ((kill-buffer-query-functions '()))
-      (dolist (cancel-fn starhugger--cancel-request-function-list)
-        (funcall cancel-fn))
-      (setq starhugger--cancel-request-function-list '())))
+    (starhugger--cancel-requests-in-buffer (current-buffer)))
   (starhugger-inlining-mode 0))
 
 (defcustom starhugger-trigger-suggestion-after-accepting t

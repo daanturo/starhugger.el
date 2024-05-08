@@ -15,6 +15,8 @@
   ~starhugger-ollama-additional-parameter-alist~,
   ~starhugger-completion-backend-function~.
 
+- New commands: ~starhugger-cancel-all-requests-globally~.
+
 * Version 0.4.1
 
 - Bug fixes.
