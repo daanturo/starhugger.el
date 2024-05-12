@@ -498,6 +498,7 @@ See https://github.com/ollama/ollama/blob/main/docs/api.md#parameters."
                starhugger-ollama-generate-api-url
                :type "POST"
                :data sending-data
+               :error #'ignore
                :complete
                (cl-function
                 (lambda (&rest
@@ -529,8 +530,17 @@ See https://github.com/ollama/ollama/blob/main/docs/api.md#parameters."
                                   `((error-thrown ,error-thrown)
                                     (data ,data)))))))))
             (request-buf (request-response--buffer request-obj))
-            (request-proc (get-buffer-process request-buf)))
-      (list :process request-proc :request-response request-obj))))
+            (request-proc (get-buffer-process request-buf))
+            (cancel-fn
+             (lambda ()
+               (dlet (
+                      ;; (request-message-level -1)
+                      )
+                 (request-abort request-obj)))))
+      (list
+       :cancel-fn cancel-fn
+       :process request-proc
+       :request-response request-obj))))
 
 
 ;;;;; Completion
@@ -555,7 +565,12 @@ only one in two of them is required)."
   :type 'function
   :options '(starhugger-ollama-completion-api starhugger-hugging-face-inference-api))
 
-(cl-defun starhugger--query-internal (prompt callback &rest args &key display spin backend &allow-other-keys)
+(defcustom starhugger-notify-request-error t
+  "Whether to notify if an error was thrown when the request is completed."
+  :group 'starhugger
+  :type 'boolean)
+
+(cl-defun starhugger--query-internal (prompt callback &rest args &key display spin backend caller &allow-other-keys)
   "CALLBACK is called with the generated text list and a plist.
 PROMPT is the prompt to use. DISPLAY is whether to display the
 generated text in a buffer. SPIN is whether to show a spinner.
@@ -565,7 +580,8 @@ ARGS are the arguments to pass to the BACKEND (or
   (-let* ((call-buf (current-buffer))
           (spin-obj
            (and spin starhugger-enable-spinner (starhugger--spinner-start)))
-          (backend (or backend starhugger-completion-backend-function)))
+          (backend (or backend starhugger-completion-backend-function))
+          (request-record nil))
     (letrec ((returned
               (apply backend
                      prompt
@@ -573,7 +589,7 @@ ARGS are the arguments to pass to the BACKEND (or
                       (lambda (gen-texts
                                &rest cb-args &key error &allow-other-keys)
                         (cl-callf
-                            (lambda (lst) (delete returned lst))
+                            (lambda (lst) (delete request-record lst))
                             (gethash call-buf (starhugger--running-request-table)
                                      '()))
                         (when spin-obj
@@ -586,12 +602,14 @@ ARGS are the arguments to pass to the BACKEND (or
                            :other-info cb-args
                            :backend backend
                            :display display)
-                          (when error
+                          (when (and error starhugger-notify-request-error)
                             (message "`starhugger' response error: %s" err-str))
                           (apply callback gen-texts cb-args))))
                      args)))
-      (push returned (gethash call-buf (starhugger--running-request-table) '()))
-      returned)))
+      (setq request-record (append returned `(:caller ,caller)))
+      (push
+       request-record (gethash call-buf (starhugger--running-request-table) '()))
+      request-record)))
 
 
 ;;;; Overlay inline suggestion
@@ -1013,14 +1031,15 @@ fetch different responses. Non-nil INTERACT: show spinner."
                                  (funcall func (+ fetch-time 1)))
                                 ((not (starhugger--active-overlay-p))
                                  (starhugger--ensure-inlininng-mode 0))))))))
-                     :spin (or starhugger-debug interact)
-                     :force-new (or force-new (< 1 fetch-time))
                      :max-new-tokens
                      (or max-new-tokens
                          (starhugger--get-from-num-or-list
                           starhugger-max-new-tokens
                           interact))
                      :num-return-sequences num
+                     :force-new (or force-new (< 1 fetch-time))
+                     :spin (or starhugger-debug interact)
+                     :caller #'starhugger-trigger-suggestion
                      :backend backend))))
               (funcall func 1))))))
     (funcall prompt-fn callback)))
@@ -1030,10 +1049,30 @@ fetch different responses. Non-nil INTERACT: show spinner."
   (when (and (equal in-buffer (current-buffer)) (equal position (point)))
     (or (starhugger--try-show-most-recent-suggestion)
         (when (not cache-only)
+          (starhugger--cancel-requests-in-buffer
+           (current-buffer)
+           nil
+           (lambda (request-plist)
+             (member
+              (plist-get request-plist :caller)
+              '(starhugger-trigger-suggestion))))
+
+          ;; TODO: prevent spamming requests
+          ;; (-let* ((requests
+          ;;          (gethash
+          ;;           (current-buffer) (starhugger--running-request-table))))
+          ;;   (when (--> (<= 1 (length requests)))
+          ;;     (notifications-notify
+          ;;      :body
+          ;;      (format "Already running %d requests in %S!"
+          ;;              (length requests)
+          ;;              (buffer-name)))))
+
           (starhugger-trigger-suggestion
-           :num (starhugger--get-from-num-or-list
-                 starhugger-numbers-of-suggestions-to-fetch
-                 nil))))))
+           :num
+           (starhugger--get-from-num-or-list
+            starhugger-numbers-of-suggestions-to-fetch
+            nil))))))
 
 (defun starhugger--cancel-request (plist)
   (-let* (((&plist :cancel-fn cancel-fn :process process) plist))
@@ -1047,11 +1086,23 @@ fetch different responses. Non-nil INTERACT: show spinner."
           (when proc-buf
             (kill-buffer proc-buf))))))))
 
-(defun starhugger--cancel-requests-in-buffer (buf &optional plist-lst)
-  (dolist (plist
-           (or plist-lst (gethash buf (starhugger--running-request-table) '())))
-    (starhugger--cancel-request plist)
-    (remhash buf (starhugger--running-request-table))))
+(defun starhugger--cancel-requests-in-buffer
+    (buf &optional plist-lst plist-pred)
+  (dlet ((starhugger-notify-request-error nil))
+    (-let* ((plist-lst
+             (or plist-lst
+                 (gethash buf (starhugger--running-request-table) '())))
+            (new-plist-lst
+             (-remove
+              (lambda (plist)
+                (cond
+                 ((or (null plist-pred) (funcall plist-pred plist))
+                  (starhugger--cancel-request plist)
+                  t)
+                 (:else
+                  nil)))
+              plist-lst)))
+      (puthash buf new-plist-lst (starhugger--running-request-table)))))
 
 (defun starhugger-cancel-all-requests-globally ()
   "Terminate running requests in all buffers."
@@ -1294,6 +1345,7 @@ a new answer."
        (recenter 0)))
    :max-new-tokens starhugger-send-max-new-tokens
    :force-new force-new
+   :caller #'starhugger-send
    :display t
    :spin t))
 
