@@ -173,9 +173,10 @@ Doesn't count fills tokens and maybe the context."
   "Buffer name to log things, hidden by default.")
 
 (defun starhugger--log (&rest args)
-  (unless (get-buffer (format " *%s-log*" 'starhugger))
+  (unless (get-buffer starhugger--log-buffer)
     (with-current-buffer (get-buffer-create starhugger--log-buffer)
-      (read-only-mode)))
+      (dlet ((view-inhibit-help-message t))
+        (read-only-mode))))
   (with-current-buffer starhugger--log-buffer
     (-let* ((pt0 (and (not (eobp)) (point))))
       (dlet ((inhibit-read-only t))
