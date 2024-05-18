@@ -351,6 +351,33 @@ It should return 2 different responses, each with 2
   (when (or starhugger-debug error-flag)
     (apply #'starhugger--log starhugger--last-returned-request args)))
 
+(defcustom starhugger-notify-request-error t
+  "Whether to notify if an error was thrown when the request is completed."
+  :group 'starhugger
+  :type 'boolean)
+
+(defun starhugger--without-notify-request-error--a (func &rest args)
+  (dlet ((starhugger-notify-request-error nil))
+    (apply func args)))
+
+(defun starhugger--request-dot-el--silent-sentinel-a (fn proc event &rest args)
+  (cond
+   ((member event '("interrupt" "interrupt\n"))
+    (dlet ((request-message-level -1))
+      (apply fn proc event args)))
+   (:else
+    (apply fn proc event args))))
+
+(defun starhugger--request-dot-el-request (url &rest settings)
+  "Wrapper around (`request' URL @SETTINGS) that silence errors when aborting.
+See https://github.com/tkf/emacs-request/issues/226."
+  (declare (indent defun))
+  (-let* ((req (apply #'request url settings)))
+    (add-function :around
+                  (process-sentinel
+                   (get-buffer-process (request-response--buffer req)))
+                  #'starhugger--request-dot-el--silent-sentinel-a)
+    req))
 
 ;;;;; Backends
 
@@ -495,7 +522,7 @@ See https://github.com/ollama/ollama/blob/main/docs/api.md#parameters."
     (starhugger--log-before-request
      starhugger-ollama-generate-api-url sending-data)
     (-let* ((request-obj
-             (request
+             (starhugger--request-dot-el-request
                starhugger-ollama-generate-api-url
                :type "POST"
                :data sending-data
@@ -527,17 +554,12 @@ See https://github.com/ollama/ollama/blob/main/docs/api.md#parameters."
                              generated-lst
                              :model model
                              :error
-                             (and error-thrown
-                                  `((error-thrown ,error-thrown)
-                                    (data ,data)))))))))
+                             (and
+                              error-thrown
+                              `((error-thrown ,error-thrown) (data ,data)))))))))
             (request-buf (request-response--buffer request-obj))
             (request-proc (get-buffer-process request-buf))
-            (cancel-fn
-             (lambda ()
-               (dlet (
-                      ;; (request-message-level -1)
-                      )
-                 (request-abort request-obj)))))
+            (cancel-fn (lambda () (request-abort request-obj))))
       (list
        :cancel-fn cancel-fn
        :process request-proc
@@ -554,22 +576,17 @@ function (that accepts these arguments and should be supplied:
 the model's list of generated strings, optional keywords such as
 `:error'), and optional keyword(s): `:parameters', `:options':
 alist of parameters and options, respectively to pass to the
-model; and other optional arguments: `:force-new',
+backend's model; and other optional arguments: `:force-new',
 `:max-new-tokens', `:num-return-sequences'.
 
-It must return a plist that contains: `:cancel-fn': a function
-that terminates the running request when called, and/or
-`:process': the process to be terminate to cancel the
-request (calling :cancel-fn is prioritized over killing :process,
-only one in two of them is required)."
+It must return a plist that contains: `:process': the process to
+be terminate to cancel the request, whose `process-sentinel' can
+be decorated; optionally `:cancel-fn': a function that terminates
+the running request when called, (calling `:cancel-fn' is
+prioritized over stopping `:process')."
   :group 'starhugger
   :type 'function
   :options '(starhugger-ollama-completion-api starhugger-hugging-face-inference-api))
-
-(defcustom starhugger-notify-request-error t
-  "Whether to notify if an error was thrown when the request is completed."
-  :group 'starhugger
-  :type 'boolean)
 
 (cl-defun starhugger--query-internal (prompt callback &rest args &key display spin backend caller &allow-other-keys)
   "CALLBACK is called with the generated text list and a plist.
@@ -1059,15 +1076,16 @@ fetch different responses. Non-nil INTERACT: show spinner."
               '(starhugger-trigger-suggestion))))
 
           ;; TODO: prevent spamming requests
-          ;; (-let* ((requests
-          ;;          (gethash
-          ;;           (current-buffer) (starhugger--running-request-table))))
-          ;;   (when (--> (<= 1 (length requests)))
-          ;;     (notifications-notify
-          ;;      :body
-          ;;      (format "Already running %d requests in %S!"
-          ;;              (length requests)
-          ;;              (buffer-name)))))
+          (when starhugger-debug
+            (-let* ((requests
+                     (gethash
+                      (current-buffer) (starhugger--running-request-table))))
+              (when (<= 1 (length requests))
+                (starhugger--log
+                 (format "`%s' Already running %d requests in %S!"
+                         'starhugger--triggger-suggestion-prefer-cache
+                         (length requests)
+                         (buffer-name))))))
 
           (starhugger-trigger-suggestion
            :num
@@ -1077,33 +1095,36 @@ fetch different responses. Non-nil INTERACT: show spinner."
 
 (defun starhugger--cancel-request (plist)
   (-let* (((&plist :cancel-fn cancel-fn :process process) plist))
-    (cond
-     (cancel-fn
-      (funcall cancel-fn))
-     (process
-      (dlet ((kill-buffer-query-functions '()))
-        (-let* ((proc-buf (process-buffer process)))
-          (delete-process process)
-          (when proc-buf
-            (kill-buffer proc-buf))))))))
+    (when process
+      (add-function :around
+                    (process-sentinel process)
+                    #'starhugger--without-notify-request-error--a))
+    (dlet ((starhugger-notify-request-error nil))
+      (cond
+       (cancel-fn
+        (funcall cancel-fn))
+       (process
+        (dlet ((kill-buffer-query-functions '()))
+          (-let* ((proc-buf (process-buffer process)))
+            (delete-process process)
+            (when proc-buf
+              (kill-buffer proc-buf)))))))))
 
 (defun starhugger--cancel-requests-in-buffer
     (buf &optional plist-lst plist-pred)
-  (dlet ((starhugger-notify-request-error nil))
-    (-let* ((plist-lst
-             (or plist-lst
-                 (gethash buf (starhugger--running-request-table) '())))
-            (new-plist-lst
-             (-remove
-              (lambda (plist)
-                (cond
-                 ((or (null plist-pred) (funcall plist-pred plist))
-                  (starhugger--cancel-request plist)
-                  t)
-                 (:else
-                  nil)))
-              plist-lst)))
-      (puthash buf new-plist-lst (starhugger--running-request-table)))))
+  (-let* ((plist-lst
+           (or plist-lst (gethash buf (starhugger--running-request-table) '())))
+          (new-plist-lst
+           (-remove
+            (lambda (plist)
+              (cond
+               ((or (null plist-pred) (funcall plist-pred plist))
+                (starhugger--cancel-request plist)
+                t)
+               (:else
+                nil)))
+            plist-lst)))
+    (puthash buf new-plist-lst (starhugger--running-request-table))))
 
 (defun starhugger-cancel-all-requests-globally ()
   "Terminate running requests in all buffers."
