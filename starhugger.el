@@ -1002,14 +1002,16 @@ dependencies. Also remember to reduce
     (elt num-or-list 0))))
 
 ;;;###autoload
-(cl-defun starhugger-trigger-suggestion (&key interact force-new num prompt-fn max-new-tokens backend)
+(cl-defun starhugger-trigger-suggestion (&key interact force-new num prompt-fn max-new-tokens backend callback)
   "Show AI-powered code suggestions as overlays.
 When an inline suggestion is already showing, new suggestions
 will be fetched, you can switch to them by calling
 `starhugger-show-next-suggestion' after fetching finishes. NUM:
 number of suggestions to fetch at once (actually sequentially,
 the newly fetched ones are appended silently). FORCE-NEW: try to
-fetch different responses. Non-nil INTERACT: show spinner."
+fetch different responses. Non-nil INTERACT: show spinner.
+CALLBACK: to be called with the list of generated suggestions,
+and a variadic plist."
   (interactive (list :interact t :force-new starhugger-inlining-mode))
   (-let*
       ((num
@@ -1017,11 +1019,11 @@ fetch different responses. Non-nil INTERACT: show spinner."
             (starhugger--get-from-num-or-list
              starhugger-numbers-of-suggestions-to-fetch
              interact)))
-       (call-buf (current-buffer))
+       (caller-buf (current-buffer))
        (pt0 (point))
        (state (starhugger--suggestion-state))
        (prompt-fn (or prompt-fn #'starhugger--async-prompt))
-       (callback
+       (prompt-callback
         (lambda (prompt)
           (when (< 0 (length prompt))
             (starhugger--ensure-inlininng-mode)
@@ -1030,25 +1032,28 @@ fetch different responses. Non-nil INTERACT: show spinner."
                   (lambda (fetch-time)
                     (starhugger--query-internal
                      prompt
-                     (lambda (gen-texts &rest returned-args)
-                       (when (and (buffer-live-p call-buf)
+                     (lambda (generated-texts &rest returned-args)
+                       (when (and (buffer-live-p caller-buf)
                                   (not (plist-get returned-args :error)))
-                         (with-current-buffer call-buf
-                           (-let* ((suggt-1st (-first-item gen-texts)))
-                             (starhugger--add-to-suggestion-list gen-texts state)
+                         (with-current-buffer caller-buf
+                           (-let* ((suggt-1st
+                                    (-first-item generated-texts)))
+                             (starhugger--add-to-suggestion-list
+                              generated-texts state)
                              ;; only display when didn't move or interactive (in that
                              ;; case we are explicitly waiting)
                              (when (or interact (= pt0 (point)))
-                               ;; ;; TODO: why is the buffer modified here?
                                (when (= 1 fetch-time)
                                  (starhugger--ensure-inlininng-mode)
                                  (starhugger--init-overlay suggt-1st pt0))
                                (cond
                                 ((and (< fetch-time num)
-                                      (< (length gen-texts) num))
+                                      (< (length generated-texts) num))
                                  (funcall func (+ fetch-time 1)))
                                 ((not (starhugger--active-overlay-p))
-                                 (starhugger--ensure-inlininng-mode 0))))))))
+                                 (starhugger--ensure-inlininng-mode 0)))))))
+                       (when callback
+                         (apply callback generated-texts returned-args)))
                      :max-new-tokens
                      (or max-new-tokens
                          (starhugger--get-from-num-or-list
@@ -1060,10 +1065,10 @@ fetch different responses. Non-nil INTERACT: show spinner."
                      :caller #'starhugger-trigger-suggestion
                      :backend backend))))
               (funcall func 1))))))
-    (funcall prompt-fn callback)))
+    (funcall prompt-fn prompt-callback)))
 
 (defun starhugger--triggger-suggestion-prefer-cache
-    (in-buffer position &optional cache-only)
+    (in-buffer position &optional cache-only callback)
   (when (and (equal in-buffer (current-buffer)) (equal position (point)))
     (or (starhugger--try-show-most-recent-suggestion)
         (when (not cache-only)
@@ -1088,6 +1093,7 @@ fetch different responses. Non-nil INTERACT: show spinner."
                          (buffer-name))))))
 
           (starhugger-trigger-suggestion
+           :callback callback
            :num
            (starhugger--get-from-num-or-list
             starhugger-numbers-of-suggestions-to-fetch
@@ -1297,21 +1303,38 @@ cached, for the suggestion to appear."
 
 (defvar-local starhugger--auto-timer nil)
 
-(defun starhugger-auto--after-change-h (&optional _beg _end old-len)
-  (when (and this-command (not starhugger--inline-inhibit-changing-overlay))
-    (when (timerp starhugger--auto-timer)
-      (cancel-timer starhugger--auto-timer))
-    (setq starhugger--auto-timer
-          (run-with-idle-timer
-           starhugger-auto-idle-time
-           nil
-           #'starhugger--triggger-suggestion-prefer-cache
-           (current-buffer)
-           (point)
-           (< 0 old-len) ; don't fetch new when deleting
-           ))))
+(defvar-local starhugger--auto-positional-state-old nil)
 
-(defun starhugger-auto--post-command-h ()
+(defun starhugger--auto-positional-state (&rest other-info)
+  (vector
+   (point) (buffer-substring-no-properties (point-min) (point-max)) other-info))
+
+(defun starhugger--auto-after-change-h (&optional beg end old-len)
+  (when (and this-command (not starhugger--inline-inhibit-changing-overlay))
+    (-let* ((tick-current (starhugger--auto-positional-state beg end old-len)))
+      ;; Avoid spamming requests: do not activate another idle timer that have
+      ;; exactly the same positional state as the previous one, whose request is
+      ;; probably still running
+      (when (not (equal starhugger--auto-positional-state-old tick-current))
+        (setq starhugger--auto-positional-state-old tick-current)
+        (when (timerp starhugger--auto-timer)
+          (cancel-timer starhugger--auto-timer))
+        (setq
+         starhugger--auto-timer
+         (run-with-idle-timer
+          starhugger-auto-idle-time
+          nil
+          #'starhugger--triggger-suggestion-prefer-cache
+          (current-buffer)
+          (point)
+          ;; don't fetch new when deleting
+          (< 0 old-len)
+          ;; When receiving suggestions, reset positional state so that
+          ;; automatic trigger can happen later
+          (lambda (&rest _)
+            (setq starhugger--auto-positional-state-old nil))))))))
+
+(defun starhugger--auto-post-command-h ()
   (when (and starhugger--overlay
              starhugger-inlining-mode
              starhugger-auto-dismiss-when-move-out
@@ -1330,11 +1353,11 @@ cached, for the suggestion to appear."
   :global nil
   (if starhugger-auto-mode
       (progn
-        (add-hook 'post-command-hook #'starhugger-auto--post-command-h nil t)
-        (add-hook 'after-change-functions #'starhugger-auto--after-change-h nil t))
+        (add-hook 'post-command-hook #'starhugger--auto-post-command-h nil t)
+        (add-hook 'after-change-functions #'starhugger--auto-after-change-h nil t))
     (progn
-      (remove-hook 'post-command-hook #'starhugger-auto--post-command-h t)
-      (remove-hook 'after-change-functions #'starhugger-auto--after-change-h t))))
+      (remove-hook 'post-command-hook #'starhugger--auto-post-command-h t)
+      (remove-hook 'after-change-functions #'starhugger--auto-after-change-h t))))
 
 ;;;; Other commands
 
