@@ -25,10 +25,10 @@ Of if you want to install from source, add one of the following to your configur
   (package-vc-install '(starhugger :url "https://gitlab.com/daanturo/starhugger.el")))
 
 ;; straight.el
-(straight-use-package '(starhugger :repo "https://gitlab.com/daanturo/starhugger.el" :files (:defaults "*.py")))
+(straight-use-package '(starhugger :files (:defaults "*.py")))
 
 ;; Doom
-(package! starhugger (:repo "https://gitlab.com/daanturo/starhugger.el" :files (:defaults "*.py")))
+(package! starhugger :recipe (:files (:defaults "*.py")))
 
 ;; elpaca.el
 (elpaca (starhugger :repo "https://gitlab.com/daanturo/starhugger.el" :files (:defaults "*.py")))
