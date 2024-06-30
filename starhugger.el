@@ -1219,7 +1219,10 @@ executed in a temporary buffer)."
 (defun starhugger-accept-suggestion ()
   "Insert the whole suggestion."
   (interactive)
-  (starhugger--accept-suggestion-partially (lambda () (goto-char (point-max)))))
+  (starhugger--accept-suggestion-partially
+   (lambda ()
+     (goto-char (point-max))
+     (skip-chars-backward "\n"))))
 
 (defun starhugger-accept-suggestion-by-character (n)
   "Insert N characters from the suggestion."
