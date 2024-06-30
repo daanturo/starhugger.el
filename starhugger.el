@@ -96,7 +96,10 @@ See https://huggingface.co/docs/api-inference/quicktour#running-inference-with-a
   '(("\\bStarcoder[0-9]+\\b" .
      (:fill-tokens
       ("<fim_prefix>" "<fim_suffix>" "<fim_middle>")
-      :stop-tokens ("<|endoftext|>")))
+      :stop-tokens
+      ("<|endoftext|>"
+       "<file_sep>" ; https://github.com/bigcode-project/starcoder2/issues/10#issuecomment-1979014959
+       )))
     ;; TODO: "<|file_separator|>" support?
     ("\\bCode\\b?Gemma\\b" .
      (:fill-tokens
@@ -261,7 +264,7 @@ Additionally prevent errors about multi-byte characters."
         (goto-char (point-max))
         (insert
          (starhugger--record-propertize
-          (concat starhugger--record-heading-beg "INPUT to API: ")))
+          (concat starhugger--record-heading-beg "API INPUT: ")))
         (insert (format "(info: %S)" args) "\n\n")
         (insert prompt)
         (insert "\n\n")
@@ -275,7 +278,7 @@ Additionally prevent errors about multi-byte characters."
               (insert
                (starhugger--record-propertize
                 (format
-                 "%sOUTPUT #%d/%d from API:"
+                 "%sAPI OUTPUT #%d/%d:"
                  starhugger--record-heading-beg (+ 1 it-index) (length lst))))
               (insert "\n" it "\n\n"))))
 
@@ -588,6 +591,25 @@ prioritized over stopping `:process')."
   :type 'function
   :options '(starhugger-ollama-completion-api starhugger-hugging-face-inference-api))
 
+(defun starhugger--trim-from-stop-tokens-maybe (str &optional stop-token-lst)
+  (cond
+   ((not starhugger-chop-stop-token)
+    str)
+   (:else
+    ;; I think literal `string-search' is faster than `replace-regexp-in-string'?
+    (named-let
+        recur
+        ((stop-token-lst (or stop-token-lst starhugger-stop-tokens)) (retval str))
+      (-let* ((stop-token (car stop-token-lst))
+              (found-end-pos (and stop-token (string-search stop-token retval))))
+        (cond
+         ((null stop-token)
+          retval)
+         (found-end-pos
+          (recur (cdr stop-token-lst) (substring retval 0 found-end-pos)))
+         (:else
+          (recur (cdr stop-token-lst) retval))))))))
+
 (cl-defun starhugger--query-internal (prompt callback &rest args &key display spin backend caller &allow-other-keys)
   "CALLBACK is called with the generated text list and a plist.
 PROMPT is the prompt to use. DISPLAY is whether to display the
@@ -622,7 +644,10 @@ ARGS are the arguments to pass to the BACKEND (or
                            :display display)
                           (when (and error starhugger-notify-request-error)
                             (message "`starhugger' response error: %s" err-str))
-                          (apply callback gen-texts cb-args))))
+                          (apply callback
+                                 (-map
+                                  #'starhugger--trim-from-stop-tokens-maybe gen-texts)
+                                 cb-args))))
                      args)))
       (setq request-record (append returned `(:caller ,caller)))
       (push
@@ -1172,18 +1197,14 @@ executed in a temporary buffer)."
     (dlet ((starhugger--inline-inhibit-changing-overlay t))
       (goto-char pos)
       (-let* ((suggt (starhugger--current-overlay-suggestion))
-              (suggt*
-               (if starhugger-chop-stop-token
-                   (s-chop-suffixes starhugger-stop-tokens suggt)
-                 suggt))
               (text-to-insert
                (with-temp-buffer
-                 (insert suggt*)
+                 (insert suggt)
                  (goto-char (point-min))
                  (apply by args)
                  (buffer-substring (point-min) (point)))))
         (insert text-to-insert)
-        (if (equal suggt* text-to-insert)
+        (if (equal suggt text-to-insert)
             (progn
               (starhugger-dismiss-suggestion)
               (and starhugger-trigger-suggestion-after-accepting
