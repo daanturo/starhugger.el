@@ -519,6 +519,8 @@ See https://github.com/ollama/ollama/blob/main/docs/api.md#parameters."
                ,@(and force-new
                       starhugger-retry-temperature-range
                       `((temperature . ,(starhugger--retry-temperature))))
+               ,@(and starhugger-chop-stop-token
+                      `((stop . [,@starhugger-stop-tokens])))
                ,@(alist-get 'options starhugger-ollama-additional-parameter-alist))
               (stream . :false)
               ,@starhugger-ollama-additional-parameter-alist))))
@@ -557,9 +559,9 @@ See https://github.com/ollama/ollama/blob/main/docs/api.md#parameters."
                              generated-lst
                              :model model
                              :error
-                             (and
-                              error-thrown
-                              `((error-thrown ,error-thrown) (data ,data)))))))))
+                             (and error-thrown
+                                  `((error-thrown ,error-thrown)
+                                    (data ,data)))))))))
             (request-buf (request-response--buffer request-obj))
             (request-proc (get-buffer-process request-buf))
             (cancel-fn (lambda () (request-abort request-obj))))
@@ -591,24 +593,21 @@ prioritized over stopping `:process')."
   :type 'function
   :options '(starhugger-ollama-completion-api starhugger-hugging-face-inference-api))
 
-(defun starhugger--trim-from-stop-tokens-maybe (str &optional stop-token-lst)
-  (cond
-   ((not starhugger-chop-stop-token)
-    str)
-   (:else
-    ;; I think literal `string-search' is faster than `replace-regexp-in-string'?
-    (named-let
-        recur
-        ((stop-token-lst (or stop-token-lst starhugger-stop-tokens)) (retval str))
-      (-let* ((stop-token (car stop-token-lst))
-              (found-end-pos (and stop-token (string-search stop-token retval))))
-        (cond
-         ((null stop-token)
-          retval)
-         (found-end-pos
-          (recur (cdr stop-token-lst) (substring retval 0 found-end-pos)))
-         (:else
-          (recur (cdr stop-token-lst) retval))))))))
+(defun starhugger--trim-from-stop-tokens (str &optional stop-token-lst)
+  (named-let
+      recur
+      ((stop-token-lst (or stop-token-lst starhugger-stop-tokens))
+       ;; I think literal `string-search' is faster than `replace-regexp-in-string'?
+       (retval str))
+    (-let* ((stop-token (car stop-token-lst))
+            (found-end-pos (and stop-token (string-search stop-token retval))))
+      (cond
+       ((null stop-token)
+        retval)
+       (found-end-pos
+        (recur (cdr stop-token-lst) (substring retval 0 found-end-pos)))
+       (:else
+        (recur (cdr stop-token-lst) retval))))))
 
 (cl-defun starhugger--query-internal (prompt callback &rest args &key display spin backend caller &allow-other-keys)
   "CALLBACK is called with the generated text list and a plist.
@@ -617,11 +616,18 @@ generated text in a buffer. SPIN is whether to show a spinner.
 ARGS are the arguments to pass to the BACKEND (or
 `starhugger-completion-backend-function')"
   (run-hooks 'starhugger-before-request-hook)
-  (-let* ((call-buf (current-buffer))
-          (spin-obj
-           (and spin starhugger-enable-spinner (starhugger--spinner-start)))
-          (backend (or backend starhugger-completion-backend-function))
-          (request-record nil))
+  (-let*
+      ((call-buf (current-buffer))
+       (spin-obj
+        (and spin starhugger-enable-spinner (starhugger--spinner-start)))
+       (backend (or backend starhugger-completion-backend-function))
+       ;; Haven't tested with HuggingFace so always remove just to be safe,
+       ;; Ollama allows supplying stop sequences in the request:
+       ;; https://github.com/ollama/ollama/blob/main/docs/modelfile.md#valid-parameters-and-values
+       (manual-trim-stop-tokens
+        (and starhugger-chop-stop-token
+             (not (member backend '(starhugger-ollama-completion-api)))))
+       (request-record nil))
     (letrec ((returned
               (apply backend
                      prompt
@@ -634,7 +640,13 @@ ARGS are the arguments to pass to the BACKEND (or
                                      '()))
                         (when spin-obj
                           (funcall spin-obj))
-                        (-let* ((err-str (format "%S" error)))
+                        (-let* ((err-str (format "%S" error))
+                                (gen-texts-post-process
+                                 (if manual-trim-stop-tokens
+                                     (-map
+                                      #'starhugger--trim-from-stop-tokens
+                                      gen-texts)
+                                   gen-texts)))
                           (starhugger--record-generated
                            prompt
                            gen-texts
@@ -644,10 +656,7 @@ ARGS are the arguments to pass to the BACKEND (or
                            :display display)
                           (when (and error starhugger-notify-request-error)
                             (message "`starhugger' response error: %s" err-str))
-                          (apply callback
-                                 (-map
-                                  #'starhugger--trim-from-stop-tokens-maybe gen-texts)
-                                 cb-args))))
+                          (apply callback gen-texts-post-process cb-args))))
                      args)))
       (setq request-record (append returned `(:caller ,caller)))
       (push
@@ -738,12 +747,8 @@ the same as the second number."
   :group 'starhugger
   :type '(choice natnum (list natnum natnum)))
 
-(defun starhugger--current-overlay-suggestion (&optional chop-stop-token)
-  (-->
-   (overlay-get starhugger--overlay 'starhugger-ovlp-current-suggestion)
-   (if chop-stop-token
-       (s-chop-suffixes starhugger-stop-tokens it)
-     it)))
+(defun starhugger--current-overlay-suggestion ()
+  (overlay-get starhugger--overlay 'starhugger-ovlp-current-suggestion))
 
 (defvar starhugger-at-suggestion-map (make-sparse-keymap)
   "Use `starhugger-inline-menu-item' instead!
@@ -753,7 +758,7 @@ Keymap used when at the beginning of suggestion overlay.")
 (make-obsolete-variable 'starhugger-at-suggestion-map nil "0.1.18")
 
 (defun starhugger--update-overlay (suggt &optional orig-pt)
-  "Update overlay to displayer SUGGT after ORIG-PT.
+  "Update overlay to display SUGGT after ORIG-PT.
 ORIG-PT defaults to current point, when supplying it with a
 non-nil (numeric) value, mark SUGGT and ORIG-PT as the original
 ones."
