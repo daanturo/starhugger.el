@@ -37,7 +37,16 @@ if proc.returncode != 0:
 
 lines = grepped.splitlines()
 # no empty
-lines = [line for line in lines if line != ""]
+lines = [
+    line
+    for line in lines
+    if (
+        line != ""
+        and
+        # No known flags to ignore this (https://github.com/BurntSushi/ripgrep/discussions/1779)
+        (not line.startswith("[Omitted long "))
+    )
+]
 # no duplicates
 lines = list(set(lines))
 # ignored keywords

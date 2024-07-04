@@ -14,7 +14,7 @@
 ;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 ;;; Commentary:
-;; 
+;;
 
 ;;; Code:
 
@@ -231,35 +231,94 @@ error: %s
                             (buffer-string))
                    (funcall callback nil)))))
             (proc
-             (start-process "starhugger-grep-context--get-lines" buf script-path
-                            script-json-arg)))
+             (-let* ((cmd-args (list script-path script-json-arg)))
+               (apply #'start-process
+                      "starhugger-grep-context--get-lines"
+                      buf
+                      cmd-args))))
       (set-process-sentinel proc wrapped-callback)
       proc)))
 
-(defvar-local starhugger-grep-context--prefix-comments--cache nil)
+(defvar-local starhugger-grep-context--buffer-local-cache '())
+(defun starhugger-grep-context--buffer-local-cache-get (key &optional model)
+  (alist-get (vector key (or model starhugger-model-id))
+             starhugger-grep-context--buffer-local-cache
+             nil
+             nil
+             #'equal))
+(defun starhugger-grep-context--buffer-local-cache-set
+    (key text &optional model)
+  (setf (alist-get (vector key (or model starhugger-model-id))
+                   starhugger-grep-context--buffer-local-cache
+                   nil
+                   nil
+                   #'equal)
+        text))
 
-(defun starhugger-grep-context--prefix-comments (callback)
-  "CALLBACK is called with an annotated comment string as argument.
-This must be called in the completing buffer."
-  (if starhugger-grep-context--prefix-comments--cache
-      (funcall callback starhugger-grep-context--prefix-comments--cache)
-    (-let* ((buf0 (current-buffer))
-            (cmt-beg comment-start)
-            (cmt-end comment-end)
-            (cmt-end* (and (< 0 (length cmt-end)) (concat " " cmt-end)))
-            (cmt-fn (lambda (str) (concat cmt-beg " " str cmt-end*))))
-      (starhugger-grep-context--get-lines
-       (lambda (lines)
-         (-let* ((commented-lines
-                  (--> lines (-map cmt-fn it) (string-join it "\n")))
-                 (note (funcall cmt-fn "Context in other files:"))
-                 (context
-                  (if (< 0 (length lines))
-                      (concat note "\n" commented-lines "\n")
-                    "")))
-           (with-current-buffer buf0
-             (setq starhugger-grep-context--prefix-comments--cache context)
-             (funcall callback context))))))))
+(defun starhugger-grep-context--prefix-comments
+    (callback pre-code &optional suf-code)
+  "CALLBACK is called with the built prompt.
+This must be called in the completing buffer. PRE-CODE, SUF-CODE: string
+before and after cursor."
+  (-let* ((callback1
+           (lambda (ctx)
+             (funcall callback
+                      (starhugger--fim-concatenate
+                       pre-code
+                       suf-code
+                       :suf-fim-prefix ctx))))
+          (cached-context
+           (starhugger-grep-context--buffer-local-cache-get 'prefix-comments)))
+    (if cached-context
+        (funcall callback1 cached-context)
+      (-let* ((buf0 (current-buffer))
+              (cmt-beg comment-start)
+              (cmt-end comment-end)
+              (cmt-end* (and (< 0 (length cmt-end)) (concat " " cmt-end)))
+              (cmt-fn (lambda (str) (concat cmt-beg " " str cmt-end*))))
+        (starhugger-grep-context--get-lines
+         (lambda (lines)
+           (-let* ((commented-lines
+                    (--> lines (-map cmt-fn it) (string-join it "\n")))
+                   (note (funcall cmt-fn "Context in other files:"))
+                   (context
+                    (if (< 0 (length lines))
+                        (concat note "\n" commented-lines "\n")
+                      "")))
+             (with-current-buffer buf0
+               (starhugger-grep-context--buffer-local-cache-set
+                'prefix-comments context)
+               (funcall callback1 context)))))))))
+
+(cl-defun starhugger-grep-context--file-sep-before-prefix (callback pre-code &optional suf-code file-separator)
+  (-let* ((callback1
+           (lambda (ctx)
+             (funcall callback
+                      (starhugger--fim-concatenate
+                       pre-code
+                       suf-code
+                       :pre-fim-prefix ctx))))
+          (cached-context
+           (starhugger-grep-context--buffer-local-cache-get
+            'file-sep-before-prefix)))
+    (if cached-context
+        (funcall callback1 cached-context)
+      (-let* ((buf0 (current-buffer)))
+        (starhugger-grep-context--get-lines
+         ;; based on the Starcoder2 paper's example:
+         ;; <repo_name>reponame<file_sep>filepath0\ncode0<file_sep><fim_prefix>filepath1\n
+         ;; code1_pre<fim_suffix>code1_suf<fim_middle>code1_mid<file_sep>
+         ;; ...<|endoftext|>
+         (lambda (lines)
+           (-let* ((context
+                    (-->
+                     lines (string-join it "\n")
+                     ;; ignore file names for now
+                     (concat file-separator "\n" it file-separator "\n"))))
+             (with-current-buffer buf0
+               (starhugger-grep-context--buffer-local-cache-set
+                'file-sep-before-prefix context)
+               (funcall callback1 context)))))))))
 
 
 ;;; starhugger-grep-context.el ends here

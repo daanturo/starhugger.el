@@ -93,7 +93,14 @@ See https://huggingface.co/docs/api-inference/quicktour#running-inference-with-a
   :type 'string)
 
 (defvar starhugger--model-config-presets
-  '(("\\bStarcoder[0-9]+\\b" .
+  '(
+    ;; the original Starcoder
+    ("\\bStarcoder\\b" .
+     (:fill-tokens
+      ("<fim_prefix>" "<fim_suffix>" "<fim_middle>")
+      :stop-tokens ("<|endoftext|>")
+      :family starcoder))
+    ("\\bStarcoder[0-9]+\\b" .
      (:fill-tokens
       ("<fim_prefix>" "<fim_suffix>" "<fim_middle>")
       :stop-tokens
@@ -102,26 +109,26 @@ See https://huggingface.co/docs/api-inference/quicktour#running-inference-with-a
        )
       :file-separator "<file_sep>"
       :family starcoder))
-    ;; TODO: "<|file_separator|>" support?
-    ("\\bCode\\b?Gemma\\b" .
+    ("\\bCode[^a-z]?Gemma\\b" .
      (:fill-tokens
       ("<|fim_prefix|>" "<|fim_suffix|>" "<|fim_middle|>")
       :stop-tokens ()
       :file-separator "<|file_separator|>"
-      :family gemma))
+      :family code-gemma))
     ("\\bDeepseek\\b" .
      (:fill-tokens
       ("<｜fim▁begin｜>" "<｜fim▁hole｜>" "<｜fim▁end｜>")
       :stop-tokens ("<｜eos▁token｜>")
       :family deepseek))
-    ("\\bCode\\b?Llama\\b" .
+    ("\\bCode[^a-z]?Llama\\b" .
      (:fill-tokens
       ("<PRE>" "<SUF>" "<MID>")
       :stop-tokens ("<|endoftext|>" "<EOT>")
       :family code-llama)))
   "Refer to https://github.com/huggingface/huggingface-vscode/blob/f044ff02f08e49a5da9849f34235fece4a32535b/src/configTemplates.ts#L17.")
 
-(defun starhuggger--get-model-preset (&optional model-id)
+(defvar starhugger-model-id)
+(defun starhugger--get-model-preset (&optional model-id)
   (-let* ((model-id (or model-id starhugger-model-id)))
     (alist-get model-id starhugger--model-config-presets
                nil nil
@@ -135,7 +142,7 @@ See https://huggingface.co/docs/api-inference/quicktour#running-inference-with-a
 (defun starhugger--model-id-set-fn (sym val)
   (set-default-toplevel-value sym val)
   (save-match-data
-    (-when-let* ((preset (starhuggger--get-model-preset val)))
+    (-when-let* ((preset (starhugger--get-model-preset val)))
       (setq starhugger-hugging-face-api-url
             (concat starhugger-hugging-face-api-base-url val))
       (setq starhugger-fill-tokens (map-nested-elt preset '(:fill-tokens)))
@@ -998,13 +1005,32 @@ dependencies. Also remember to reduce
   :group 'starhugger
   :type 'boolean)
 
+(cl-defun starhugger--fim-concatenate (pre-code
+                                       &optional
+                                       suf-code
+                                       &key
+                                       pre-fim-prefix
+                                       suf-fim-prefix
+                                       suf-fim-suffix
+                                       fim-tokens)
+  (-let* (((pre-token mid-token suf-token)
+           (and suf-code ; when no code after point, let fill tokens be nil
+                (or fim-tokens starhugger-fill-tokens))))
+    (concat
+     pre-fim-prefix pre-token suf-fim-prefix ;
+     pre-code mid-token suf-code ;
+     suf-token suf-fim-suffix)))
+
 (declare-function starhugger-grep-context--prefix-comments
                   "starhugger-grep-context")
+(declare-function starhugger-grep-context--file-sep-before-prefix "starhugger-grep-context")
 
 (defun starhugger--async-prompt (callback)
   "CALLBACK is called with the constructed prompt."
   (-let* (([pre-code suf-code] (starhugger--prompt-build-components))
           ((pre-token mid-token suf-token) starhugger-fill-tokens)
+          (preset (starhugger--get-model-preset))
+          (file-sep (map-nested-elt preset '(:file-separator)))
           (wrapped-callback
            (lambda (dumb-context)
              (-let* ((prompt
@@ -1023,8 +1049,16 @@ dependencies. Also remember to reduce
     (if starhugger-enable-dumb-grep-context
         (progn
           (require 'starhugger-grep-context)
-          (starhugger-grep-context--prefix-comments wrapped-callback))
-      (funcall wrapped-callback ""))))
+          (cond
+           ((and file-sep
+                 (member
+                  (map-nested-elt preset '(:family)) '(code-gemma starcoder)))
+            (starhugger-grep-context--file-sep-before-prefix
+             callback pre-code suf-code file-sep))
+           (:else
+            (starhugger-grep-context--prefix-comments
+             wrapped-callback pre-code suf-code))))
+      (funcall callback (starhugger--fim-concatenate pre-code suf-code)))))
 
 (defun starhugger--get-from-num-or-list (num-or-list &optional idx)
   (cond
@@ -1433,7 +1467,8 @@ a new answer."
 
 (defun starhugger--suggest-git-commit-message-prompt-fn (callback)
   (-let*
-      ((outbuf
+      ((cmd-args '("git" "--no-pager" "diff" "--cached"))
+       (outbuf
         (generate-new-buffer-name
          " starhugger--suggest-git-commit-message-prompt-fn"))
        (sentinel
@@ -1450,13 +1485,16 @@ a new answer."
                          "`git diff --cached`'s output:\n```\n%s\n```\nSuggested commit message:"
                          proc-output)))
                     (funcall callback prompt))
-                (message "`starhugger:' git exited with code: %s, output:\n%s"
-                         exit-code proc-output))))
+                (message "`starhugger:' %S exited with code: %s, output:\n%s"
+                         cmd-args
+                         exit-code
+                         proc-output))))
           (kill-buffer outbuf)))
        (proc
-        (start-process
-         "starhugger--suggest-git-commit-message-prompt-fn" outbuf "git"
-         "--no-pager" "diff" "--cached")))
+        (apply #'start-process
+               "starhugger--suggest-git-commit-message-prompt-fn"
+               outbuf
+               cmd-args)))
     (set-process-sentinel proc sentinel)))
 
 ;;;###autoload
