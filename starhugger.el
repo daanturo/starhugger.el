@@ -99,35 +99,43 @@ See https://huggingface.co/docs/api-inference/quicktour#running-inference-with-a
       :stop-tokens
       ("<|endoftext|>"
        "<file_sep>" ; https://github.com/bigcode-project/starcoder2/issues/10#issuecomment-1979014959
-       )))
+       )
+      :file-separator "<file_sep>"
+      :family starcoder))
     ;; TODO: "<|file_separator|>" support?
     ("\\bCode\\b?Gemma\\b" .
      (:fill-tokens
-      ("<fim_prefix>" "<fim_suffix>" "<fim_middle>")
-      :stop-tokens ()))
+      ("<|fim_prefix|>" "<|fim_suffix|>" "<|fim_middle|>")
+      :stop-tokens ()
+      :file-separator "<|file_separator|>"
+      :family gemma))
     ("\\bDeepseek\\b" .
      (:fill-tokens
       ("<｜fim▁begin｜>" "<｜fim▁hole｜>" "<｜fim▁end｜>")
-      :stop-tokens ("<｜eos▁token｜>")))
+      :stop-tokens ("<｜eos▁token｜>")
+      :family deepseek))
     ("\\bCode\\b?Llama\\b" .
      (:fill-tokens
       ("<PRE>" "<SUF>" "<MID>")
-      :stop-tokens ("<|endoftext|>" "<EOT>"))))
+      :stop-tokens ("<|endoftext|>" "<EOT>")
+      :family code-llama)))
   "Refer to https://github.com/huggingface/huggingface-vscode/blob/f044ff02f08e49a5da9849f34235fece4a32535b/src/configTemplates.ts#L17.")
+
+(defun starhuggger--get-model-preset (&optional model-id)
+  (-let* ((model-id (or model-id starhugger-model-id)))
+    (alist-get model-id starhugger--model-config-presets
+               nil nil
+               (lambda (alist-car _)
+                 (dlet ((case-fold-search t))
+                   (string-match
+                    alist-car
+                    ;; ignore organization name
+                    (replace-regexp-in-string "^.*?/" "" model-id)))))))
 
 (defun starhugger--model-id-set-fn (sym val)
   (set-default-toplevel-value sym val)
   (save-match-data
-    (-when-let* ((preset
-                  (alist-get val starhugger--model-config-presets
-                             nil nil
-                             (lambda (alist-car _)
-                               (dlet ((case-fold-search t))
-                                 (string-match
-                                  alist-car
-                                  ;; ignore organization name
-                                  (replace-regexp-in-string
-                                   "^.*?/" "" val)))))))
+    (-when-let* ((preset (starhuggger--get-model-preset val)))
       (setq starhugger-hugging-face-api-url
             (concat starhugger-hugging-face-api-base-url val))
       (setq starhugger-fill-tokens (map-nested-elt preset '(:fill-tokens)))
@@ -995,22 +1003,22 @@ dependencies. Also remember to reduce
 
 (defun starhugger--async-prompt (callback)
   "CALLBACK is called with the constructed prompt."
-  (-let* (([pre-compon suf-compon] (starhugger--prompt-build-components))
+  (-let* (([pre-code suf-code] (starhugger--prompt-build-components))
           ((pre-token mid-token suf-token) starhugger-fill-tokens)
           (wrapped-callback
            (lambda (dumb-context)
              (-let* ((prompt
                       (cond
-                       (suf-compon
+                       (suf-code
                         (concat
                          pre-token
                          dumb-context
-                         pre-compon
+                         pre-code
                          mid-token
-                         suf-compon
+                         suf-code
                          suf-token))
                        (t
-                        (concat dumb-context pre-compon)))))
+                        (concat dumb-context pre-code)))))
                (funcall callback prompt)))))
     (if starhugger-enable-dumb-grep-context
         (progn
