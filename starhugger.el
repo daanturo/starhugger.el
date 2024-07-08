@@ -1269,6 +1269,7 @@ executed in a temporary buffer)."
   (starhugger--accept-suggestion-partially
    (lambda ()
      (goto-char (point-max))
+     ;; don't end at an empty newline awkwardly
      (skip-chars-backward "\n"))))
 
 (defun starhugger-accept-suggestion-by-character (n)

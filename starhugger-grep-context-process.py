@@ -56,11 +56,12 @@ ignored_kw_re = "|".join(f"^[ \t]*{kw}\\b" for kw in ignored_keywords)
 ignored_kw_re = f"{ignored_kw_re}|[ \t]main[ \t(]"
 ignored_kw_re = re.compile(ignored_kw_re)
 
-proc = subprocess.run(cmd_args, stdout=subprocess.PIPE)
-grepped = proc.stdout.decode("utf-8")
+proc = subprocess.run(cmd_args, stdout=subprocess.PIPE, encoding="utf8")
+grepped = proc.stdout
 
-if proc.returncode != 0:
+if proc.returncode != 0 and (proc.stderr is not None):
     print(grepped)
+    print(proc.stderr, file=sys.stderr)
     sys.exit(proc.returncode)
 
 string_lines = grepped.split("\n")

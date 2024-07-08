@@ -235,8 +235,11 @@ Or when an error occurs, with nil."
                     "%s %s
 error: %s"
                     (file-name-nondirectory script-path) script-json-arg event)
-                   (push script-json-arg
-                         starhugger-grep-context--get--error-script-args)
+                   (unless (equal
+                            script-json-arg
+                            (car starhugger-grep-context--get--error-script-args))
+                     (push script-json-arg
+                           starhugger-grep-context--get--error-script-args))
                    (funcall callback nil)))))
             (proc
              (-let* ((cmd-args (list script-path script-json-arg)))
@@ -269,12 +272,12 @@ error: %s"
 This must be called in the completing buffer. PRE-CODE, SUF-CODE: string
 before and after cursor."
   (-let* ((callback1
-           (lambda (ctx)
+           (lambda (files-context)
              (funcall callback
                       (starhugger--fim-concatenate
                        pre-code
                        suf-code
-                       :suf-fim-prefix ctx))))
+                       :suf-fim-prefix files-context))))
           (cached-context
            (starhugger-grep-context--buffer-local-cache-get 'prefix-comments)))
     (if cached-context
@@ -301,12 +304,12 @@ before and after cursor."
 
 (cl-defun starhugger-grep-context--file-sep-before-prefix (callback pre-code &optional suf-code file-separator)
   (-let* ((callback1
-           (lambda (ctx)
+           (lambda (files-context)
              (funcall callback
                       (starhugger--fim-concatenate
                        pre-code
                        suf-code
-                       :pre-fim-prefix ctx))))
+                       :pre-fim-prefix files-context))))
           (cached-context
            (starhugger-grep-context--buffer-local-cache-get
             'file-sep-before-prefix)))
@@ -319,20 +322,22 @@ before and after cursor."
          ;; code1_pre<fim_suffix>code1_suf<fim_middle>code1_mid<file_sep>
          ;; ...<|endoftext|>
          (lambda (output)
-           (-let* ((sep* (concat ;; "\n"
-                          file-separator))
-                   (paragraphs (string-split output "\n\n" t))
-                   (context
-                    (-->
-                     (string-join paragraphs sep*)
-                     (concat
-                      file-separator it file-separator
-                      ;; optionally put current file name here
-                      "\n"))))
+           (-let* ((paragraphs (string-split output "\n\n" t))
+                   (files-ctx
+                    (cond
+                     ((equal '() paragraphs)
+                      "")
+                     (:else
+                      (-->
+                       (string-join paragraphs file-separator)
+                       (concat
+                        file-separator it file-separator
+                        ;; optionally put current file name here
+                        "\n"))))))
              (with-current-buffer buf0
                (starhugger-grep-context--buffer-local-cache-set
-                'file-sep-before-prefix context)
-               (funcall callback1 context)))))))))
+                'file-sep-before-prefix files-ctx)
+               (funcall callback1 files-ctx)))))))))
 
 
 ;;; starhugger-grep-context.el ends here

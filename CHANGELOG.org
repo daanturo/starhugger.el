@@ -17,10 +17,6 @@
 
 - New commands: ~starhugger-cancel-all-requests-globally~.
 
-- ~starhugger-accept-suggestion~ now skip trailing newlines by default, since
-  it's a bit annoying to end the cursor one (or more) line away from the
-  inserted text.
-
 * Version 0.4.1
 
 - Bug fixes.
