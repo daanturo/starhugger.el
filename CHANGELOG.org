@@ -1,7 +1,7 @@
 * Version 0.5.0
 
-- Introduce configurable ~starhugger-completion-backend-function~ and support
-  Ollama.
+- Introduce configurable ~starhugger-completion-backend-function~ and Ollama
+  support.
 
 - Rename ~starhugger-additional-data-alist~ to
   ~starhugger-hugging-face-additional-data-alist~,
