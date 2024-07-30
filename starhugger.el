@@ -840,6 +840,7 @@ ones."
   "Return CMD (or true) when point is at suggestion start.
 See `starhugger-inline-menu-item'."
   (and starhugger-inlining-mode
+       starhugger--overlay
        (equal (overlay-start starhugger--overlay) (point))
        (or cmd t)))
 
