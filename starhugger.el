@@ -1,7 +1,7 @@
 ;;; starhugger.el --- Hugging Face/AI-powered text & code completion client  -*- lexical-binding: t; -*-
 
-;; Version: 0.4.3-git
-;; Package-Requires: ((emacs "28.2") (compat "29.1.4.0") (dash "2.18.0") (s "1.13.1") (spinner "1.7.4"))
+;; Version: 0.5.0-git
+;; Package-Requires: ((emacs "28.2") (compat "29.1.4.0") (dash "2.18.0") (s "1.13.1") (spinner "1.7.4") (request "0.3.2"))
 ;; Keywords: completion, convenience, languages
 ;; Homepage: https://gitlab.com/daanturo/starhugger.el
 
@@ -28,8 +28,11 @@
 (require 'subr-x)
 (require 'map)
 
-(require 'dash)
 (require 'compat)
+(require 'dash)
+(require 's)
+(require 'request)
+
 
 ;;;; Helpers
 
@@ -37,7 +40,7 @@
   "Execute the forms in BODY with BUFFER-OR-NAME temporarily current.
 Like `with-current-buffer', but allow scrolling the visible
 window of BUFFER-OR-NAME when at the buffer end, if any."
-  (declare (debug t) (indent defun))
+  (declare (debug t) (indent 1))
   `(-let* ((wd (get-buffer-window ,buffer-or-name t)))
      (cond
       (wd
@@ -56,7 +59,10 @@ window of BUFFER-OR-NAME when at the buffer end, if any."
 
 ;;;; Making requests
 
-(defcustom starhugger-api-token nil
+(define-obsolete-variable-alias
+  'starhugger-api-token 'starhugger-hugging-face-api-token "0.5.0")
+
+(defcustom starhugger-hugging-face-api-token nil
   "Hugging Face user access token.
 Generate yours at URL `https://huggingface.co/settings/tokens'.
 Can be either a direct string, or a function to be called with no
@@ -68,64 +74,99 @@ dynamically setting with (`encode-coding-string' ... \\='utf-8)."
   :group 'starhugger
   :type '(choice string function))
 
-(defvar starhugger--model-config-presets
-  '(("bigcode/starcoder" .
-     (:endpoint
-      "https://api-inference.huggingface.co/models/bigcode/starcoder"
-      :fill-tokens ("<fim_prefix>" "<fim_suffix>" "<fim_middle>")
-      :stop-tokens ("<|endoftext|>")))
-    ("codellama/CodeLlama-13b-hf" .
-     (:endpoint
-      "https://api-inference.huggingface.co/models/codellama/CodeLlama-13b-hf"
-      :fill-tokens ("<PRE>" "<SUF>" "<MID>")
-      :stop-tokens ("<|endoftext|>" "<EOT>"))))
-  "Refer to https://github.com/huggingface/huggingface-vscode/blob/f044ff02f08e49a5da9849f34235fece4a32535b/src/configTemplates.ts#L17.")
-
-(defvar starhugger-model-api-endpoint-url)
+(define-obsolete-variable-alias
+  'starhugger-model-api-endpoint-url
+  'starhugger-hugging-face-api-url
+  "0.5.0")
+(defvar starhugger-hugging-face-api-url nil
+  "Hugging Face text inference API's URL to make requests (includes model name).
+To be concatenated with `starhugger-hugging-face-api-base-url'
+and `starhugger-model-id'.")
 (defvar starhugger-fill-tokens)
 (defvar starhugger-stop-tokens)
+
+(defcustom starhugger-hugging-face-api-base-url
+  "https://api-inference.huggingface.co/models/"
+  "Hugging Face inference API's base URL, to be concatenated with model ID.
+See https://huggingface.co/docs/api-inference/quicktour#running-inference-with-api-requests."
+  :group 'starhugger
+  :type 'string)
+
+(defvar starhugger--model-config-presets
+  '(
+    ;; the original Starcoder
+    ("\\bStarcoder\\b" .
+     (:fill-tokens
+      ("<fim_prefix>" "<fim_suffix>" "<fim_middle>")
+      :stop-tokens ("<|endoftext|>")
+      :family starcoder))
+    ("\\bStarcoder[0-9]+\\b" .
+     (:fill-tokens
+      ("<fim_prefix>" "<fim_suffix>" "<fim_middle>")
+      :stop-tokens
+      ("<|endoftext|>"
+       "<file_sep>" ; https://github.com/bigcode-project/starcoder2/issues/10#issuecomment-1979014959
+       )
+      :file-separator "<file_sep>"
+      :family starcoder))
+    ("\\bCode[^a-z]?Gemma\\b" .
+     (:fill-tokens
+      ("<|fim_prefix|>" "<|fim_suffix|>" "<|fim_middle|>")
+      :stop-tokens ()
+      :file-separator "<|file_separator|>"
+      :family code-gemma))
+    ("\\bDeepseek\\b" .
+     (:fill-tokens
+      ("<｜fim▁begin｜>" "<｜fim▁hole｜>" "<｜fim▁end｜>")
+      :stop-tokens ("<｜eos▁token｜>")
+      :family deepseek))
+    ("\\bCode[^a-z]?Llama\\b" .
+     (:fill-tokens
+      ("<PRE>" "<SUF>" "<MID>")
+      :stop-tokens ("<|endoftext|>" "<EOT>")
+      :family code-llama)))
+  "Refer to https://github.com/huggingface/huggingface-vscode/blob/f044ff02f08e49a5da9849f34235fece4a32535b/src/configTemplates.ts#L17.")
+
+(defvar starhugger-model-id)
+(defun starhugger--get-model-preset (&optional model-id)
+  (-let* ((model-id (or model-id starhugger-model-id)))
+    (alist-get model-id starhugger--model-config-presets
+               nil nil
+               (lambda (alist-car _)
+                 (dlet ((case-fold-search t))
+                   (string-match
+                    alist-car
+                    ;; ignore organization name
+                    (replace-regexp-in-string "^.*?/" "" model-id)))))))
+
+(defun starhugger--model-id-set-fn (sym val)
+  (set-default-toplevel-value sym val)
+  (save-match-data
+    (-when-let* ((preset (starhugger--get-model-preset val)))
+      (setq starhugger-hugging-face-api-url
+            (concat starhugger-hugging-face-api-base-url val))
+      (setq starhugger-fill-tokens (map-nested-elt preset '(:fill-tokens)))
+      (setq starhugger-stop-tokens (map-nested-elt preset '(:stop-tokens))))))
 
 (defcustom starhugger-model-id "bigcode/starcoder2-15b"
   "The language model's ID.
 If you want to use one of the configuration presets, set this
 before loading `starhugger.el' or use `setopt' (or Emacs's
 customization interface). Else if you use a custom model,
-configure `starhugger-model-api-endpoint-url',
+configure `starhugger-hugging-face-api-url',
 `starhugger-fill-tokens', `starhugger-stop-tokens' manually (and
 you don't need to customize this variable if they are set that
 way)."
   :group 'starhugger
   :type 'string
-  :set (lambda (sym val)
-         (set-default-toplevel-value sym val)
-         (-when-let* ((preset
-                       (map-nested-elt
-                        starhugger--model-config-presets
-                        (list starhugger-model-id))))
-           (setq starhugger-model-api-endpoint-url
-                 (map-nested-elt preset '(:endpoint)))
-           (setq starhugger-fill-tokens (map-nested-elt preset '(:fill-tokens)))
-           (setq starhugger-stop-tokens (map-nested-elt preset '(:stop-tokens))))))
+  :set #'starhugger--model-id-set-fn)
 
-(defcustom starhugger-model-api-endpoint-url
-  (or (map-nested-elt
-       starhugger--model-config-presets (list starhugger-model-id :endpoint))
-      (format "https://api-inference.huggingface.co/models/%s"
-              starhugger-model-id))
-  "End point URL to make HTTP requests."
-  :group 'starhugger
-  :type 'string)
-
-(defcustom starhugger-stop-tokens
-  (map-nested-elt
-   starhugger--model-config-presets (list starhugger-model-id :stop-tokens))
+(defcustom starhugger-stop-tokens nil
   "End of sentence tokens."
   :group 'starhugger
   :type 'string)
 
-(defcustom starhugger-fill-tokens
-  (map-nested-elt
-   starhugger--model-config-presets (list starhugger-model-id :fill-tokens))
+(defcustom starhugger-fill-tokens nil
   "List of 3 tokens to use for `starhugger-fill-in-the-middle'.
 See
 https://github.com/huggingface/huggingface-vscode/blob/73818334f4939c2f19480a404f74944a47933a12/src/runCompletion.ts#L66"
@@ -133,14 +174,6 @@ https://github.com/huggingface/huggingface-vscode/blob/73818334f4939c2f19480a404
   :type '(list string string string))
 
 
-(defun starhugger--get-all-generated-texts (str)
-  (-let* ((parsed (json-parse-string str :object-type 'alist))
-          ((_ . err-msg) (and (listp parsed) (assoc 'error parsed))))
-    (cond
-     (err-msg
-      (user-error "`starhugger' response error: %s" err-msg))
-     (t
-      (-map (lambda (elem) (alist-get 'generated_text elem)) parsed)))))
 
 (defcustom starhugger-generated-buffer (format "*%s*" 'starhugger)
   "Buffer name to log parsed responses."
@@ -158,9 +191,10 @@ Doesn't count fills tokens and maybe the context."
   "Buffer name to log things, hidden by default.")
 
 (defun starhugger--log (&rest args)
-  (unless (get-buffer (format " *%s-log*" 'starhugger))
+  (unless (get-buffer starhugger--log-buffer)
     (with-current-buffer (get-buffer-create starhugger--log-buffer)
-      (read-only-mode)))
+      (dlet ((view-inhibit-help-message t))
+        (read-only-mode))))
   (with-current-buffer starhugger--log-buffer
     (-let* ((pt0 (and (not (eobp)) (point))))
       (dlet ((inhibit-read-only t))
@@ -190,28 +224,13 @@ Doesn't count fills tokens and maybe the context."
 ;; WHY isn't this documented?!
 (defvar url-http-end-of-headers)
 
-(defcustom starhugger-additional-data-alist
-  '((parameters
-     (return_full_text . :false) ; don't re-include the prompt
-     )
-    (options)
-    ;;
-    )
-  "Detailed parameter list.
-An association list to be converted by `json-serialize'. See
-https://huggingface.co/docs/api-inference/detailed_parameters#text-generation-task
-for parameters. Note that this packages is built around the
-parameter \"return_full_text\" being false, setting it otherwise
-may cause unexpected behaviors."
-  :group 'starhugger
-  :type 'alist)
 
 (defcustom starhugger-max-new-tokens nil
   "When a number, set it to max_new_tokens.
 It can be a list of two natural numbers: the number of tokens to
 fetch when called automatically and the number of token to fetch
 when called interactively. See also
-`starhugger-additional-data-alist'."
+`starhugger-hugging-face-additional-data-alist'."
   :group 'starhugger
   :type '(choice natnum (list natnum natnum)))
 
@@ -221,102 +240,82 @@ Additionally prevent errors about multi-byte characters."
   (-->
    object (apply #'json-serialize it args) (encode-coding-string it 'utf-8)))
 
-(defvar starhugger--last-request nil)
 (defvar starhugger-debug nil)
+(defvar starhugger--last-returned-request nil
+  "Last returned request info, for debugging.")
+(defvar starhugger--last-sent-request nil
+  "Last sent request info, for debugging.")
 
 (defvar starhugger-before-request-hook '()
   "Hook run before making an HTTP request.")
 
-(defvar-local starhugger--current-request-buffer-list '())
+(defvar starhugger--running-request-table--table nil
+  "Keys are buffers.")
+(defun starhugger--running-request-table ()
+  (unless starhugger--running-request-table--table
+    (setq starhugger--running-request-table--table
+          (make-hash-table :test #'equal)))
+  starhugger--running-request-table--table)
 
-(defun starhugger--get-api-token-as-string ()
-  (cond
-   ((stringp starhugger-api-token)
-    starhugger-api-token)
-   ((functionp starhugger-api-token)
-    (funcall starhugger-api-token))))
-
-(cl-defun starhugger--request (prompt callback &key data headers method +parameters +options)
-  "CALLBACK's arguments: the response's content."
-  (run-hooks 'starhugger-before-request-hook)
-  (-let* ((data
-           (or data
-               (starhugger--json-serialize
-                `((inputs . ,prompt)
-                  (parameters ,@+parameters)
-                  (options ,@+options))))))
-    (dlet ((url-request-method (or method "POST"))
-           (url-request-data data)
-           (url-request-extra-headers
-            (or headers
-                `(("Content-Type" . "application/json")
-                  ,@(-some-->
-                        (starhugger--get-api-token-as-string)
-                      `(("Authorization" . ,(format "Bearer %s" it))))))))
-      (when starhugger-debug
-        (dlet ((starhugger--log-buffer " *starhugger sent request data"))
-          (starhugger--log data)))
-      (url-retrieve
-       starhugger-model-api-endpoint-url
-       (lambda (status)
-         (-let* ((content
-                  (and url-http-end-of-headers
-                       (buffer-substring url-http-end-of-headers (point-max)))))
-           (setq starhugger--last-request
-                 (list
-                  :response-content content
-                  :send-data data
-                  :response-status status))
-           (when (or starhugger-debug (not url-http-end-of-headers))
-             (starhugger--log
-              starhugger--last-request
-              :header (and url-http-end-of-headers
-                           (buffer-substring (point-min) url-http-end-of-headers))))
-           (funcall callback content)))
-       nil t))))
 
 (defun starhugger--record-propertize (str)
   (propertize str 'face '(:foreground "yellow" :weight bold)))
 
 (defvar starhugger--record-heading-beg "#*> ")
 
-(cl-defun starhugger--record-generated (prompt parsed-response-list &key display parameters)
+(cl-defun starhugger--record-generated (prompt parsed-response-list &rest args &key display &allow-other-keys)
   (-let* ((buf
            (or (get-buffer starhugger-generated-buffer)
                (prog1 (get-buffer-create starhugger-generated-buffer)
                  (with-current-buffer starhugger-generated-buffer
                    (setq-local outline-regexp
                                (regexp-quote starhugger--record-heading-beg))
+                   <<<<<<< HEAD
                    (setq-local window-point-insertion-type t))))))
     (starhugger--with-buffer-scrolling buf
-      (dlet ((inhibit-read-only t))
+      =======
+      (setq-local window-point-insertion-type t)
+      (read-only-mode))))))
+(starhugger--with-buffer-scrolling
+    buf
+  >>>>>>> configurable-backend
+  (dlet ((inhibit-read-only t))
 
-        (goto-char (point-max))
-        (insert
-         (starhugger--record-propertize
-          (concat starhugger--record-heading-beg "INPUT to API: ")))
-        (insert (format "(with parameters: %s)" parameters) "\n\n")
-        (insert prompt)
-        (insert "\n\n")
+    (goto-char (point-max))
+    (insert
+     (starhugger--record-propertize
+      <<<<<<< HEAD
+      (concat starhugger--record-heading-beg "INPUT to API: ")))
+    (insert (format "(with parameters: %s)" parameters) "\n\n")
+    =======
+    (concat starhugger--record-heading-beg "API INPUT: ")))
+(insert (format "(info: %S)" args) "\n\n")
+>>>>>>> configurable-backend
+(insert prompt)
+(insert "\n\n")
 
-        (if (equal parsed-response-list '())
-            (insert
-             (starhugger--record-propertize
-              (concat starhugger--record-heading-beg "OUTPUT from API: None!\n")))
-          (-let* ((lst (ensure-list parsed-response-list)))
-            (--each lst
-              (insert
-               (starhugger--record-propertize
-                (format
-                 "%sOUTPUT #%d/%d from API:"
-                 starhugger--record-heading-beg (+ 1 it-index) (length lst))))
-              (insert "\n" it "\n\n"))))
+(if (equal parsed-response-list '())
+    (insert
+     (starhugger--record-propertize
+      (concat starhugger--record-heading-beg "OUTPUT from API: None!\n")))
+  (-let* ((lst (ensure-list parsed-response-list)))
+    (--each lst
+      (insert
+       (starhugger--record-propertize
+        (format
+         <<<<<<< HEAD
+         "%sOUTPUT #%d/%d from API:"
+         =======
+         "%sAPI OUTPUT #%d/%d:"
+         >>>>>>> configurable-backend
+         starhugger--record-heading-beg (+ 1 it-index) (length lst))))
+      (insert "\n" it "\n\n"))))
 
-        (insert "\n\n\n")))
-    (when display
-      (save-selected-window
-        (pop-to-buffer buf)))
-    buf))
+(insert "\n\n\n")))
+(when display
+  (save-selected-window
+    (pop-to-buffer buf)))
+buf))
 
 (defcustom starhugger-strip-prompt-before-insert nil
   "Whether to remove the prompt in the parsed response before inserting.
@@ -345,15 +344,6 @@ for the relevant tokens."
   :group 'starhugger
   :type 'float)
 
-(defun starhugger-turn-off-completion-in-region-mode ()
-  "Use this when inserting parsed response.
-To prevent key binding conflicts such as TAB."
-  (completion-in-region-mode 0))
-
-(defvar starhugger-post-insert-hook
-  '(starhugger-turn-off-completion-in-region-mode)
-  "Hook run after inserting the parsed response.")
-
 (defcustom starhugger-retry-temperature-range '(0.0 1.0)
   "The lower and upper bound of random temperature when retrying.
 A single number means just use it without generating. nil means
@@ -374,85 +364,334 @@ It should return 2 different responses, each with 2
   :group 'starhugger
   :type '(list float float))
 
-(defun starhugger--data-for-different-response ()
+(defun starhugger--retry-temperature ()
   (if (and (listp starhugger-retry-temperature-range)
            (not (seq-empty-p starhugger-retry-temperature-range)))
-      `((parameters
-         (temperature .
-                      ,(-let* (((lo hi) starhugger-retry-temperature-range))
-                         (--> (cl-random 1.0) (* it (- hi lo)) (+ lo it))))))
-    `((options (use_cache . :false))
-      (parameters
-       ,@(and starhugger-retry-temperature-range
-              `((temperature . ,starhugger-retry-temperature-range)))))))
+      (-let* (((lo hi) starhugger-retry-temperature-range))
+        (--> (cl-random 1.0) (* it (- hi lo)) (+ lo it)))
+    starhugger-retry-temperature-range))
 
-(cl-defun starhugger--query-internal-1 (prompt callback &key +options +parameters display)
-  (starhugger--request
-   prompt
-   (lambda (returned)
-     (when returned
-       (-let* ((gen-texts-or-error
-                (condition-case err
-                    (starhugger--get-all-generated-texts returned)
-                  (error (message "Error: %S" err) 'error)))
-               (error-flag (equal gen-texts-or-error 'error)))
-         (starhugger--record-generated
-          prompt
-          (if error-flag
-              returned
-            gen-texts-or-error)
-          :display display
-          :parameters `((options . ,+options) (parameters . ,+parameters)))
-         (unless error-flag
-           (funcall callback gen-texts-or-error)))))
-   :+options +options
-   :+parameters +parameters))
+(defun starhugger--log-before-request (url data &rest args)
+  (setq starhugger--last-sent-request (list :url url :data data))
+  (when starhugger-debug
+    (dlet ((starhugger--log-buffer " *starhugger sent request data*"))
+      (apply #'starhugger--log url data args))))
 
-(cl-defun starhugger--query-internal (prompt callback &rest args &key display
-                                             spin force-new num max-new-tokens
-                                             &allow-other-keys)
-  "CALLBACK is called with the generated text list.
+(defun starhugger--log-after-request
+    (request-data &optional error-flag &rest args)
+  (setq starhugger--last-returned-request request-data)
+  (when (or starhugger-debug error-flag)
+    (apply #'starhugger--log starhugger--last-returned-request args)))
+
+(defcustom starhugger-notify-request-error t
+  "Whether to notify if an error was thrown when the request is completed."
+  :group 'starhugger
+  :type 'boolean)
+
+(defun starhugger--without-notify-request-error--a (func &rest args)
+  (dlet ((starhugger-notify-request-error nil))
+    (apply func args)))
+
+(defun starhugger--request-dot-el--silent-sentinel-a (fn proc event &rest args)
+  (cond
+   ((member event '("interrupt" "interrupt\n"))
+    (dlet ((request-message-level -1))
+      (apply fn proc event args)))
+   (:else
+    (apply fn proc event args))))
+
+(defun starhugger--request-dot-el-request (url &rest settings)
+  "Wrapper around (`request' URL @SETTINGS) that silence errors when aborting.
+See https://github.com/tkf/emacs-request/issues/226."
+  (declare (indent defun))
+  (-let* ((req (apply #'request url settings)))
+    (add-function :around
+                  (process-sentinel
+                   (get-buffer-process (request-response--buffer req)))
+                  #'starhugger--request-dot-el--silent-sentinel-a)
+    req))
+
+;;;;; Backends
+
+;;;;;; Hugging Face inference API
+
+(define-obsolete-variable-alias
+  'starhugger-additional-data-alist
+  'starhugger-hugging-face-additional-data-alist
+  "0.5.0")
+
+(defcustom starhugger-hugging-face-additional-data-alist
+  '((parameters
+     (return_full_text . :false) ; don't re-include the prompt
+     )
+    (options)
+    ;;
+    )
+  "Detailed parameter list.
+An association list to be converted by `json-serialize'. See
+https://huggingface.co/docs/api-inference/detailed_parameters#text-generation-task
+for parameters. Note that this packages is built around the
+parameter \"return_full_text\" being false, setting it otherwise
+may cause unexpected behaviors."
+  :group 'starhugger
+  :type 'alist)
+
+(defun starhugger--HFI-get-api-token-as-string ()
+  (cond
+   ((stringp starhugger-hugging-face-api-token)
+    starhugger-hugging-face-api-token)
+   ((functionp starhugger-hugging-face-api-token)
+    (funcall starhugger-hugging-face-api-token))))
+
+(cl-defun starhugger-HFI--request (prompt
+                                   callback
+                                   &key
+                                   data
+                                   headers
+                                   method
+                                   max-new-tokens
+                                   num-return-sequences
+                                   force-new
+                                   url
+                                   &allow-other-keys)
+  (-let* ((data
+           (or data
+               (starhugger--json-serialize
+                `((inputs . ,prompt)
+                  (parameters
+                   ,@(and max-new-tokens `((max_new_tokens . ,max-new-tokens)))
+                   ,@(and num-return-sequences
+                          `((num_return_sequences . ,num-return-sequences)))
+                   ,@(and force-new
+                          starhugger-retry-temperature-range
+                          `((temperature . ,(starhugger--retry-temperature))))
+                   ,@(alist-get
+                      'parameters starhugger-hugging-face-additional-data-alist)
+                   (return_full_text . :false))
+                  (options
+                   ,@(and force-new '((use_cache . :false)))
+                   ,@(alist-get
+                      'options starhugger-hugging-face-additional-data-alist))))))
+          (url (or url starhugger-hugging-face-api-url)))
+    (dlet ((url-request-method (or method "POST"))
+           (url-request-data data)
+           (url-request-extra-headers
+            (or headers
+                `(("Content-Type" . "application/json")
+                  ,@(-some-->
+                        (starhugger--HFI-get-api-token-as-string)
+                      `(("Authorization" . ,(format "Bearer %s" it))))))))
+      (starhugger--log-before-request url data)
+      (-let* ((request-buf
+               (url-retrieve
+                url
+                (lambda (status)
+                  (-let* ((content
+                           (and url-http-end-of-headers
+                                (buffer-substring
+                                 url-http-end-of-headers (point-max)))))
+                    (starhugger--log-after-request
+                     (list
+                      :response-content content
+                      :send-data data
+                      :response-status status)
+                     (not url-http-end-of-headers)
+                     :header
+                     (buffer-substring-no-properties
+                      (point-min) (or url-http-end-of-headers (point-max))))
+                    (funcall callback content :url url)))
+                nil t))
+              (request-proc (get-buffer-process request-buf)))
+        (list :process request-proc)))))
+
+(cl-defun starhugger-hugging-face-inference-api (prompt callback &rest args &key &allow-other-keys)
+  (apply #'starhugger-HFI--request
+         prompt
+         (cl-function
+          (lambda (content &key url)
+            (-let* ((parsed (json-parse-string content :object-type 'alist))
+                    ((_ . err-msg) (and (listp parsed) (assoc 'error parsed)))
+                    (generated-lst
+                     (and (null err-msg)
+                          (-map
+                           (lambda (elem)
+                             (alist-get 'generated_text elem))
+                           parsed))))
+              (funcall callback generated-lst :error err-msg :url url))))
+         args))
+
+;;;;;; Ollama
+
+(defcustom starhugger-ollama-generate-api-url
+  "http://localhost:11434/api/generate"
+  "Ollama API's generation endpoint."
+  :group 'starhugger
+  :type 'string)
+
+(defcustom starhugger-ollama-additional-parameter-alist
+  '((options) (stream . :false))
+  "Ollama API's advanced parameters.
+See https://github.com/ollama/ollama/blob/main/docs/api.md#parameters."
+  :group 'starhugger
+  :type 'alist)
+
+
+(cl-defun starhugger-ollama-completion-api (prompt
+                                            callback &rest args &key model force-new max-new-tokens &allow-other-keys)
+  (-let* ((model (or model starhugger-model-id))
+          (sending-data
+           (starhugger--json-serialize
+            `((prompt . ,prompt)
+              (model . ,model)
+              (options
+               ,@(and max-new-tokens `((num_predict . ,max-new-tokens)))
+               ,@(and force-new
+                      starhugger-retry-temperature-range
+                      `((temperature . ,(starhugger--retry-temperature))))
+               ,@(and starhugger-chop-stop-token
+                      `((stop . [,@starhugger-stop-tokens])))
+               ,@(alist-get 'options starhugger-ollama-additional-parameter-alist))
+              (stream . :false)
+              ,@starhugger-ollama-additional-parameter-alist))))
+    (starhugger--log-before-request
+     starhugger-ollama-generate-api-url sending-data)
+    (-let* ((request-obj
+             (starhugger--request-dot-el-request
+               starhugger-ollama-generate-api-url
+               :type "POST"
+               :data sending-data
+               :error #'ignore
+               :complete
+               (cl-function
+                (lambda (&rest
+                         returned
+                         &key
+                         data
+                         error-thrown
+                         response
+                         &allow-other-keys)
+                  (-let* ((generated-lst
+                           (if error-thrown
+                               '()
+                             (-some-->
+                                 data
+                               (json-parse-string it :object-type 'alist)
+                               (list (alist-get 'response it))))))
+                    (starhugger--log-after-request
+                     (list
+                      :response-content returned
+                      :send-data sending-data
+                      :response-status
+                      (request-response-status-code response))
+                     error-thrown)
+                    (funcall callback
+                             generated-lst
+                             :model model
+                             :error
+                             (and error-thrown
+                                  `((error-thrown ,error-thrown)
+                                    (data ,data)))))))))
+            (request-buf (request-response--buffer request-obj))
+            (request-proc (get-buffer-process request-buf))
+            (cancel-fn (lambda () (request-abort request-obj))))
+      (list
+       :cancel-fn cancel-fn
+       :process request-proc
+       :request-response request-obj))))
+
+
+;;;;; Completion
+
+(defcustom starhugger-completion-backend-function
+  #'starhugger-hugging-face-inference-api
+  "The backend for code suggestion.
+The function accepts those arguments: prompt (string), callback
+function (that accepts these arguments and should be supplied:
+the model's list of generated strings, optional keywords such as
+`:error'), and optional keyword(s): `:parameters', `:options':
+alist of parameters and options, respectively to pass to the
+backend's model; and other optional arguments: `:force-new',
+`:max-new-tokens', `:num-return-sequences'.
+
+It must return a plist that contains: `:process': the process to
+be terminate to cancel the request, whose `process-sentinel' can
+be decorated; optionally `:cancel-fn': a function that terminates
+the running request when called, (calling `:cancel-fn' is
+prioritized over stopping `:process')."
+  :group 'starhugger
+  :type 'function
+  :options '(starhugger-ollama-completion-api starhugger-hugging-face-inference-api))
+
+(defun starhugger--trim-from-stop-tokens (str &optional stop-token-lst)
+  (named-let
+      recur
+      ((stop-token-lst (or stop-token-lst starhugger-stop-tokens))
+       ;; I think literal `string-search' is faster than `replace-regexp-in-string'?
+       (retval str))
+    (-let* ((stop-token (car stop-token-lst))
+            (found-end-pos (and stop-token (string-search stop-token retval))))
+      (cond
+       ((null stop-token)
+        retval)
+       (found-end-pos
+        (recur (cdr stop-token-lst) (substring retval 0 found-end-pos)))
+       (:else
+        (recur (cdr stop-token-lst) retval))))))
+
+(cl-defun starhugger--query-internal (prompt callback &rest args &key display spin backend caller &allow-other-keys)
+  "CALLBACK is called with the generated text list and a plist.
 PROMPT is the prompt to use. DISPLAY is whether to display the
 generated text in a buffer. SPIN is whether to show a spinner.
-FORCE-NEW is whether to force a new request. NUM is the number of
-responses to return. ARGS are the arguments to pass to
-`starhugger--request'. See `starhugger--request' for the other
-arguments. See `starhugger-additional-data-alist' for additional
-data to pass."
-  (-let* ((call-buf (current-buffer))
-          (spin-obj
-           (and spin starhugger-enable-spinner (starhugger--spinner-start)))
-          ((&alist 'options +options 'parameters +parameters)
-           (and force-new (starhugger--data-for-different-response)))
-          ((&alist 'parameters dynm-parameters 'options dynm-options)
-           starhugger-additional-data-alist))
-    (letrec ((request-buf
-              (starhugger--query-internal-1
-               prompt
-               (lambda (gen-texts)
-                 (when (buffer-live-p call-buf)
-                   (with-current-buffer call-buf
-                     ;; what if there are multiple requests in a single buffer?
-                     (setq starhugger--current-request-buffer-list
-                           (delete
-                            request-buf
-                            starhugger--current-request-buffer-list))))
-                 (when spin-obj
-                   (funcall spin-obj))
-                 (funcall callback gen-texts))
-               :+options `(,@+options ,@dynm-options)
-               :+parameters `(,@(and max-new-tokens `((max_new_tokens . ,max-new-tokens)))
-                              ,@(and num `((num_return_sequences . ,num)))
-                              ,@+parameters
-                              ,@dynm-parameters)
-               :display display)))
-      (push request-buf starhugger--current-request-buffer-list)
-      (-let* ((proc (get-buffer-process request-buf)))
-        (set-process-query-on-exit-flag proc nil)
-        (when starhugger-debug
-          (set-process-plist
-           proc `(:prompt ,prompt :args ,args ,@(process-plist proc))))
-        request-buf))))
+ARGS are the arguments to pass to the BACKEND (or
+`starhugger-completion-backend-function')"
+  (run-hooks 'starhugger-before-request-hook)
+  (-let*
+      ((call-buf (current-buffer))
+       (spin-obj
+        (and spin starhugger-enable-spinner (starhugger--spinner-start)))
+       (backend (or backend starhugger-completion-backend-function))
+       ;; Haven't tested with HuggingFace so always remove just to be safe,
+       ;; Ollama allows supplying stop sequences in the request:
+       ;; https://github.com/ollama/ollama/blob/main/docs/modelfile.md#valid-parameters-and-values
+       (manual-trim-stop-tokens
+        (and starhugger-chop-stop-token
+             (not (member backend '(starhugger-ollama-completion-api)))))
+       (request-record nil))
+    (letrec ((returned
+              (apply backend
+                     prompt
+                     (cl-function
+                      (lambda (gen-texts
+                               &rest cb-args &key error &allow-other-keys)
+                        (cl-callf
+                            (lambda (lst) (delete request-record lst))
+                            (gethash call-buf (starhugger--running-request-table)
+                                     '()))
+                        (when spin-obj
+                          (funcall spin-obj))
+                        (-let* ((err-str (format "%S" error))
+                                (gen-texts-post-process
+                                 (if manual-trim-stop-tokens
+                                     (-map
+                                      #'starhugger--trim-from-stop-tokens
+                                      gen-texts)
+                                   gen-texts)))
+                          (starhugger--record-generated
+                           prompt
+                           gen-texts
+                           :parameters args
+                           :other-info cb-args
+                           :backend backend
+                           :display display)
+                          (when (and error starhugger-notify-request-error)
+                            (message "`starhugger' response error: %s" err-str))
+                          (apply callback gen-texts-post-process cb-args))))
+                     args)))
+      (setq request-record (append returned `(:caller ,caller)))
+      (push
+       request-record (gethash call-buf (starhugger--running-request-table) '()))
+      request-record)))
+
 
 ;;;; Overlay inline suggestion
 
@@ -537,12 +776,8 @@ the same as the second number."
   :group 'starhugger
   :type '(choice natnum (list natnum natnum)))
 
-(defun starhugger--current-overlay-suggestion (&optional chop-stop-token)
-  (-->
-   (overlay-get starhugger--overlay 'starhugger-ovlp-current-suggestion)
-   (if chop-stop-token
-       (s-chop-suffixes starhugger-stop-tokens it)
-     it)))
+(defun starhugger--current-overlay-suggestion ()
+  (overlay-get starhugger--overlay 'starhugger-ovlp-current-suggestion))
 
 (defvar starhugger-at-suggestion-map (make-sparse-keymap)
   "Use `starhugger-inline-menu-item' instead!
@@ -552,7 +787,7 @@ Keymap used when at the beginning of suggestion overlay.")
 (make-obsolete-variable 'starhugger-at-suggestion-map nil "0.1.18")
 
 (defun starhugger--update-overlay (suggt &optional orig-pt)
-  "Update overlay to displayer SUGGT after ORIG-PT.
+  "Update overlay to display SUGGT after ORIG-PT.
 ORIG-PT defaults to current point, when supplying it with a
 non-nil (numeric) value, mark SUGGT and ORIG-PT as the original
 ones."
@@ -619,6 +854,7 @@ ones."
   "Return CMD (or true) when point is at suggestion start.
 See `starhugger-inline-menu-item'."
   (and starhugger-inlining-mode
+       starhugger--overlay
        (equal (overlay-start starhugger--overlay) (point))
        (or cmd t)))
 
@@ -784,33 +1020,60 @@ dependencies. Also remember to reduce
   :group 'starhugger
   :type 'boolean)
 
+(cl-defun starhugger--fim-concatenate (pre-code
+                                       &optional
+                                       suf-code
+                                       &key
+                                       pre-fim-prefix
+                                       suf-fim-prefix
+                                       suf-fim-suffix
+                                       fim-tokens)
+  (-let* (((pre-token mid-token suf-token)
+           (and suf-code ; when no code after point, let fill tokens be nil
+                (or fim-tokens starhugger-fill-tokens))))
+    (concat
+     pre-fim-prefix pre-token suf-fim-prefix ;
+     pre-code mid-token suf-code ;
+     suf-token suf-fim-suffix)))
+
 (declare-function starhugger-grep-context--prefix-comments
                   "starhugger-grep-context")
+(declare-function starhugger-grep-context--file-sep-before-prefix "starhugger-grep-context")
 
 (defun starhugger--async-prompt (callback)
   "CALLBACK is called with the constructed prompt."
-  (-let* (([pre-compon suf-compon] (starhugger--prompt-build-components))
+  (-let* (([pre-code suf-code] (starhugger--prompt-build-components))
           ((pre-token mid-token suf-token) starhugger-fill-tokens)
+          (preset (starhugger--get-model-preset))
+          (file-sep (map-nested-elt preset '(:file-separator)))
           (wrapped-callback
            (lambda (dumb-context)
              (-let* ((prompt
                       (cond
-                       (suf-compon
+                       (suf-code
                         (concat
                          pre-token
                          dumb-context
-                         pre-compon
+                         pre-code
                          mid-token
-                         suf-compon
+                         suf-code
                          suf-token))
                        (t
-                        (concat dumb-context pre-compon)))))
+                        (concat dumb-context pre-code)))))
                (funcall callback prompt)))))
     (if starhugger-enable-dumb-grep-context
         (progn
           (require 'starhugger-grep-context)
-          (starhugger-grep-context--prefix-comments wrapped-callback))
-      (funcall wrapped-callback ""))))
+          (cond
+           ((and file-sep
+                 (member
+                  (map-nested-elt preset '(:family)) '(code-gemma starcoder)))
+            (starhugger-grep-context--file-sep-before-prefix
+             callback pre-code suf-code file-sep))
+           (:else
+            (starhugger-grep-context--prefix-comments
+             wrapped-callback pre-code suf-code))))
+      (funcall callback (starhugger--fim-concatenate pre-code suf-code)))))
 
 (defun starhugger--get-from-num-or-list (num-or-list &optional idx)
   (cond
@@ -826,14 +1089,16 @@ dependencies. Also remember to reduce
     (elt num-or-list 0))))
 
 ;;;###autoload
-(cl-defun starhugger-trigger-suggestion (&key interact force-new num prompt-fn max-new-tokens)
+(cl-defun starhugger-trigger-suggestion (&key interact force-new num prompt-fn max-new-tokens backend callback)
   "Show AI-powered code suggestions as overlays.
 When an inline suggestion is already showing, new suggestions
 will be fetched, you can switch to them by calling
 `starhugger-show-next-suggestion' after fetching finishes. NUM:
 number of suggestions to fetch at once (actually sequentially,
 the newly fetched ones are appended silently). FORCE-NEW: try to
-fetch different responses. Non-nil INTERACT: show spinner."
+fetch different responses. Non-nil INTERACT: show spinner.
+CALLBACK: to be called with the list of generated suggestions,
+and a variadic plist."
   (interactive (list :interact t :force-new starhugger-inlining-mode))
   (-let*
       ((num
@@ -841,11 +1106,11 @@ fetch different responses. Non-nil INTERACT: show spinner."
             (starhugger--get-from-num-or-list
              starhugger-numbers-of-suggestions-to-fetch
              interact)))
-       (call-buf (current-buffer))
+       (caller-buf (current-buffer))
        (pt0 (point))
        (state (starhugger--suggestion-state))
        (prompt-fn (or prompt-fn #'starhugger--async-prompt))
-       (callback
+       (prompt-callback
         (lambda (prompt)
           (when (< 0 (length prompt))
             (starhugger--ensure-inlininng-mode)
@@ -854,61 +1119,136 @@ fetch different responses. Non-nil INTERACT: show spinner."
                   (lambda (fetch-time)
                     (starhugger--query-internal
                      prompt
-                     (lambda (suggestions)
-                       (when (buffer-live-p call-buf)
-                         (with-current-buffer call-buf
-                           (-let* ((suggt-1st (-first-item suggestions)))
+                     (lambda (generated-texts &rest returned-args)
+                       (when (and (buffer-live-p caller-buf)
+                                  (not (plist-get returned-args :error)))
+                         (with-current-buffer caller-buf
+                           (-let* ((suggt-1st
+                                    (-first-item generated-texts)))
                              (starhugger--add-to-suggestion-list
-                              suggestions state)
+                              generated-texts state)
                              ;; only display when didn't move or interactive (in that
                              ;; case we are explicitly waiting)
                              (when (or interact (= pt0 (point)))
-                               ;; ;; TODO: why is the buffer modified here?
                                (when (= 1 fetch-time)
                                  (starhugger--ensure-inlininng-mode)
                                  (starhugger--init-overlay suggt-1st pt0))
                                (cond
                                 ((and (< fetch-time num)
-                                      (< (length suggestions) num))
+                                      (< (length generated-texts) num))
                                  (funcall func (+ fetch-time 1)))
                                 ((not (starhugger--active-overlay-p))
-                                 (starhugger--ensure-inlininng-mode 0))))))))
-                     :spin (or starhugger-debug interact)
+                                 (starhugger--ensure-inlininng-mode 0)))))))
+                       (when callback
+                         (apply callback generated-texts returned-args)))
+                     :max-new-tokens
+                     (or max-new-tokens
+                         (starhugger--get-from-num-or-list
+                          starhugger-max-new-tokens
+                          interact))
+                     :num-return-sequences num
                      :force-new (or force-new (< 1 fetch-time))
-                     :max-new-tokens (or max-new-tokens
-                                         (starhugger--get-from-num-or-list
-                                          starhugger-max-new-tokens
-                                          interact))
-                     :num num))))
+                     :spin (or starhugger-debug interact)
+                     :caller #'starhugger-trigger-suggestion
+                     :backend backend))))
               (funcall func 1))))))
-    (funcall prompt-fn callback)))
+    (funcall prompt-fn prompt-callback)))
 
 (defun starhugger--triggger-suggestion-prefer-cache
-    (in-buffer position &optional cache-only)
+    (in-buffer position &optional cache-only callback)
   (when (and (equal in-buffer (current-buffer)) (equal position (point)))
     (or (starhugger--try-show-most-recent-suggestion)
         (when (not cache-only)
+          (starhugger--cancel-requests-in-buffer
+           (current-buffer)
+           nil
+           (lambda (request-plist)
+             (member
+              (plist-get request-plist :caller)
+              '(starhugger-trigger-suggestion))))
+
+          ;; TODO: prevent spamming requests
+          (when starhugger-debug
+            (-let* ((requests
+                     (gethash
+                      (current-buffer) (starhugger--running-request-table))))
+              (when (<= 1 (length requests))
+                (starhugger--log
+                 (format "`%s' Already running %d requests in %S!"
+                         'starhugger--triggger-suggestion-prefer-cache
+                         (length requests)
+                         (buffer-name))))))
+
           (starhugger-trigger-suggestion
-           :num (starhugger--get-from-num-or-list
-                 starhugger-numbers-of-suggestions-to-fetch
-                 nil))))))
+           :callback callback
+           :num
+           (starhugger--get-from-num-or-list
+            starhugger-numbers-of-suggestions-to-fetch
+            nil))))))
+
+(defun starhugger--cancel-request (plist)
+  (-let* (((&plist :cancel-fn cancel-fn :process process) plist))
+    (when process
+      (add-function :around
+                    (process-sentinel process)
+                    #'starhugger--without-notify-request-error--a))
+    (dlet ((starhugger-notify-request-error nil))
+      (cond
+       (cancel-fn
+        (funcall cancel-fn))
+       (process
+        (dlet ((kill-buffer-query-functions '()))
+          (-let* ((proc-buf (process-buffer process)))
+            (delete-process process)
+            (when proc-buf
+              (kill-buffer proc-buf)))))))))
+
+(defun starhugger--cancel-requests-in-buffer
+    (buf &optional plist-lst plist-pred)
+  (-let* ((plist-lst
+           (or plist-lst (gethash buf (starhugger--running-request-table) '())))
+          (new-plist-lst
+           (-remove
+            (lambda (plist)
+              (cond
+               ((or (null plist-pred) (funcall plist-pred plist))
+                (starhugger--cancel-request plist)
+                t)
+               (:else
+                nil)))
+            plist-lst)))
+    (puthash buf new-plist-lst (starhugger--running-request-table))))
+
+(defun starhugger-cancel-all-requests-globally ()
+  "Terminate running requests in all buffers."
+  (interactive)
+  (maphash
+   (lambda (buf plist-lst)
+     (starhugger--cancel-requests-in-buffer buf plist-lst))
+   (starhugger--running-request-table)))
 
 (defun starhugger-dismiss-suggestion (&optional stop-fetching)
   "Clear current suggestion.
-Non-nil STOP-FETCHING (interactively, true by default): also kill
-unfinished fetches."
+Non-nil STOP-FETCHING (interactively, true by default): also
+cancel unfinished fetches."
   (interactive (list (not current-prefix-arg)))
   (when stop-fetching
-    (dlet ((kill-buffer-query-functions '()))
-      (dolist (request-buf starhugger--current-request-buffer-list)
-        (delete-process (get-buffer-process request-buf))
-        (kill-buffer request-buf))))
+    (starhugger--cancel-requests-in-buffer (current-buffer)))
   (starhugger-inlining-mode 0))
 
 (defcustom starhugger-trigger-suggestion-after-accepting t
   "Whether to continue triggering suggestion after accepting."
   :group 'starhugger
   :type 'boolean)
+
+(defun starhugger-turn-off-completion-in-region-mode ()
+  "Use this when inserting parsed response.
+To prevent key binding conflicts such as TAB."
+  (completion-in-region-mode 0))
+
+(defvar starhugger-post-insert-hook
+  '(starhugger-turn-off-completion-in-region-mode)
+  "Hook run after inserting the parsed response.")
 
 (defun starhugger--accept-suggestion-partially (by &optional args)
   "Insert a part of active suggestion by the function BY.
@@ -919,18 +1259,14 @@ executed in a temporary buffer)."
     (dlet ((starhugger--inline-inhibit-changing-overlay t))
       (goto-char pos)
       (-let* ((suggt (starhugger--current-overlay-suggestion))
-              (suggt*
-               (if starhugger-chop-stop-token
-                   (s-chop-suffixes starhugger-stop-tokens suggt)
-                 suggt))
               (text-to-insert
                (with-temp-buffer
-                 (insert suggt*)
+                 (insert suggt)
                  (goto-char (point-min))
                  (apply by args)
                  (buffer-substring (point-min) (point)))))
         (insert text-to-insert)
-        (if (equal suggt* text-to-insert)
+        (if (equal suggt text-to-insert)
             (progn
               (starhugger-dismiss-suggestion)
               (and starhugger-trigger-suggestion-after-accepting
@@ -945,7 +1281,11 @@ executed in a temporary buffer)."
 (defun starhugger-accept-suggestion ()
   "Insert the whole suggestion."
   (interactive)
-  (starhugger--accept-suggestion-partially (lambda () (goto-char (point-max)))))
+  (starhugger--accept-suggestion-partially
+   (lambda ()
+     (goto-char (point-max))
+     ;; don't end at an empty newline awkwardly
+     (skip-chars-backward "\n"))))
 
 (defun starhugger-accept-suggestion-by-character (n)
   "Insert N characters from the suggestion."
@@ -1050,21 +1390,38 @@ cached, for the suggestion to appear."
 
 (defvar-local starhugger--auto-timer nil)
 
-(defun starhugger-auto--after-change-h (&optional _beg _end old-len)
-  (when (and this-command (not starhugger--inline-inhibit-changing-overlay))
-    (when (timerp starhugger--auto-timer)
-      (cancel-timer starhugger--auto-timer))
-    (setq starhugger--auto-timer
-          (run-with-idle-timer
-           starhugger-auto-idle-time
-           nil
-           #'starhugger--triggger-suggestion-prefer-cache
-           (current-buffer)
-           (point)
-           (< 0 old-len) ; don't fetch new when deleting
-           ))))
+(defvar-local starhugger--auto-positional-state-old nil)
 
-(defun starhugger-auto--post-command-h ()
+(defun starhugger--auto-positional-state (&rest other-info)
+  (vector
+   (point) (buffer-substring-no-properties (point-min) (point-max)) other-info))
+
+(defun starhugger--auto-after-change-h (&optional beg end old-len)
+  (when (and this-command (not starhugger--inline-inhibit-changing-overlay))
+    (-let* ((tick-current (starhugger--auto-positional-state beg end old-len)))
+      ;; Avoid spamming requests: do not activate another idle timer that have
+      ;; exactly the same positional state as the previous one, whose request is
+      ;; probably still running
+      (when (not (equal starhugger--auto-positional-state-old tick-current))
+        (setq starhugger--auto-positional-state-old tick-current)
+        (when (timerp starhugger--auto-timer)
+          (cancel-timer starhugger--auto-timer))
+        (setq
+         starhugger--auto-timer
+         (run-with-idle-timer
+          starhugger-auto-idle-time
+          nil
+          #'starhugger--triggger-suggestion-prefer-cache
+          (current-buffer)
+          (point)
+          ;; don't fetch new when deleting
+          (< 0 old-len)
+          ;; When receiving suggestions, reset positional state so that
+          ;; automatic trigger can happen later
+          (lambda (&rest _)
+            (setq starhugger--auto-positional-state-old nil))))))))
+
+(defun starhugger--auto-post-command-h ()
   (when (and starhugger--overlay
              starhugger-inlining-mode
              starhugger-auto-dismiss-when-move-out
@@ -1083,11 +1440,11 @@ cached, for the suggestion to appear."
   :global nil
   (if starhugger-auto-mode
       (progn
-        (add-hook 'post-command-hook #'starhugger-auto--post-command-h nil t)
-        (add-hook 'after-change-functions #'starhugger-auto--after-change-h nil t))
+        (add-hook 'post-command-hook #'starhugger--auto-post-command-h nil t)
+        (add-hook 'after-change-functions #'starhugger--auto-after-change-h nil t))
     (progn
-      (remove-hook 'post-command-hook #'starhugger-auto--post-command-h t)
-      (remove-hook 'after-change-functions #'starhugger-auto--after-change-h t))))
+      (remove-hook 'post-command-hook #'starhugger--auto-post-command-h t)
+      (remove-hook 'after-change-functions #'starhugger--auto-after-change-h t))))
 
 ;;;; Other commands
 
@@ -1120,12 +1477,14 @@ a new answer."
        (recenter 0)))
    :max-new-tokens starhugger-send-max-new-tokens
    :force-new force-new
+   :caller #'starhugger-send
    :display t
    :spin t))
 
 (defun starhugger--suggest-git-commit-message-prompt-fn (callback)
   (-let*
-      ((outbuf
+      ((cmd-args '("git" "--no-pager" "diff" "--cached"))
+       (outbuf
         (generate-new-buffer-name
          " starhugger--suggest-git-commit-message-prompt-fn"))
        (sentinel
@@ -1142,13 +1501,16 @@ a new answer."
                          "`git diff --cached`'s output:\n```\n%s\n```\nSuggested commit message:"
                          proc-output)))
                     (funcall callback prompt))
-                (message "`starhugger:' git exited with code: %s, output:\n%s"
-                         exit-code proc-output))))
+                (message "`starhugger:' %S exited with code: %s, output:\n%s"
+                         cmd-args
+                         exit-code
+                         proc-output))))
           (kill-buffer outbuf)))
        (proc
-        (start-process
-         "starhugger--suggest-git-commit-message-prompt-fn" outbuf "git"
-         "--no-pager" "diff" "--cached")))
+        (apply #'start-process
+               "starhugger--suggest-git-commit-message-prompt-fn"
+               outbuf
+               cmd-args)))
     (set-process-sentinel proc sentinel)))
 
 ;;;###autoload

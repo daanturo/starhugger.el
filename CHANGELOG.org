@@ -1,12 +1,31 @@
+* Version 0.5.0
+
+- Introduce configurable ~starhugger-completion-backend-function~ and Ollama
+  support.
+
+- Rename ~starhugger-additional-data-alist~ to
+  ~starhugger-hugging-face-additional-data-alist~,
+  ~starhugger-model-api-endpoint-url~ to ~starhugger-hugging-face-api-url~,
+  ~starhugger-api-token~ to ~starhugger-hugging-face-api-token~ (to distinguish
+  with newly added Ollama options).
+
+- Add ~request~ package as dependency.
+
+- New customizable variables: ~starhugger-ollama-generate-api-url~,
+  ~starhugger-ollama-additional-parameter-alist~,
+  ~starhugger-completion-backend-function~.
+
+- New commands: ~starhugger-cancel-all-requests-globally~.
+
 * Version 0.4.1
 
-- Bug fixes
+- Bug fixes.
 
 * Version 0.4.0
 
 - Support ~codellama/CodeLlama-13b-hf~.
 
-- Obsolete ~starhugger-stop-token~ in favor of ~starhugger-stop-tokens~.
+- Make ~starhugger-stop-token~ obsolete in favor of ~starhugger-stop-tokens~.
 
 * Version 0.3.1
 
