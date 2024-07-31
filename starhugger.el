@@ -270,52 +270,38 @@ Additionally prevent errors about multi-byte characters."
                  (with-current-buffer starhugger-generated-buffer
                    (setq-local outline-regexp
                                (regexp-quote starhugger--record-heading-beg))
-                   <<<<<<< HEAD
-                   (setq-local window-point-insertion-type t))))))
-    (starhugger--with-buffer-scrolling buf
-      =======
-      (setq-local window-point-insertion-type t)
-      (read-only-mode))))))
-(starhugger--with-buffer-scrolling
-    buf
-  >>>>>>> configurable-backend
-  (dlet ((inhibit-read-only t))
+                   (setq-local window-point-insertion-type t)
+                   (read-only-mode))))))
+    (starhugger--with-buffer-scrolling
+     buf
+     (dlet ((inhibit-read-only t))
 
-    (goto-char (point-max))
-    (insert
-     (starhugger--record-propertize
-      <<<<<<< HEAD
-      (concat starhugger--record-heading-beg "INPUT to API: ")))
-    (insert (format "(with parameters: %s)" parameters) "\n\n")
-    =======
-    (concat starhugger--record-heading-beg "API INPUT: ")))
-(insert (format "(info: %S)" args) "\n\n")
->>>>>>> configurable-backend
-(insert prompt)
-(insert "\n\n")
+       (goto-char (point-max))
+       (insert
+        (starhugger--record-propertize
+         (concat starhugger--record-heading-beg "API INPUT: ")))
+       (insert (format "(info: %S)" args) "\n\n")
+       (insert prompt)
+       (insert "\n\n")
 
-(if (equal parsed-response-list '())
-    (insert
-     (starhugger--record-propertize
-      (concat starhugger--record-heading-beg "OUTPUT from API: None!\n")))
-  (-let* ((lst (ensure-list parsed-response-list)))
-    (--each lst
-      (insert
-       (starhugger--record-propertize
-        (format
-         <<<<<<< HEAD
-         "%sOUTPUT #%d/%d from API:"
-         =======
-         "%sAPI OUTPUT #%d/%d:"
-         >>>>>>> configurable-backend
-         starhugger--record-heading-beg (+ 1 it-index) (length lst))))
-      (insert "\n" it "\n\n"))))
+       (if (equal parsed-response-list '())
+           (insert
+            (starhugger--record-propertize
+             (concat starhugger--record-heading-beg "OUTPUT from API: None!\n")))
+         (-let* ((lst (ensure-list parsed-response-list)))
+           (--each lst
+             (insert
+              (starhugger--record-propertize
+               (format
+                "%sAPI OUTPUT #%d/%d:"
+                starhugger--record-heading-beg (+ 1 it-index) (length lst))))
+             (insert "\n" it "\n\n"))))
 
-(insert "\n\n\n")))
-(when display
-  (save-selected-window
-    (pop-to-buffer buf)))
-buf))
+       (insert "\n\n\n")))
+    (when display
+      (save-selected-window
+        (pop-to-buffer buf)))
+    buf))
 
 (defcustom starhugger-strip-prompt-before-insert nil
   "Whether to remove the prompt in the parsed response before inserting.
@@ -557,40 +543,40 @@ See https://github.com/ollama/ollama/blob/main/docs/api.md#parameters."
      starhugger-ollama-generate-api-url sending-data)
     (-let* ((request-obj
              (starhugger--request-dot-el-request
-               starhugger-ollama-generate-api-url
-               :type "POST"
-               :data sending-data
-               :error #'ignore
-               :complete
-               (cl-function
-                (lambda (&rest
-                         returned
-                         &key
-                         data
-                         error-thrown
-                         response
-                         &allow-other-keys)
-                  (-let* ((generated-lst
-                           (if error-thrown
-                               '()
-                             (-some-->
-                                 data
-                               (json-parse-string it :object-type 'alist)
-                               (list (alist-get 'response it))))))
-                    (starhugger--log-after-request
-                     (list
-                      :response-content returned
-                      :send-data sending-data
-                      :response-status
-                      (request-response-status-code response))
-                     error-thrown)
-                    (funcall callback
-                             generated-lst
-                             :model model
-                             :error
-                             (and error-thrown
-                                  `((error-thrown ,error-thrown)
-                                    (data ,data)))))))))
+              starhugger-ollama-generate-api-url
+              :type "POST"
+              :data sending-data
+              :error #'ignore
+              :complete
+              (cl-function
+               (lambda (&rest
+                        returned
+                        &key
+                        data
+                        error-thrown
+                        response
+                        &allow-other-keys)
+                 (-let* ((generated-lst
+                          (if error-thrown
+                              '()
+                            (-some-->
+                                data
+                              (json-parse-string it :object-type 'alist)
+                              (list (alist-get 'response it))))))
+                   (starhugger--log-after-request
+                    (list
+                     :response-content returned
+                     :send-data sending-data
+                     :response-status
+                     (request-response-status-code response))
+                    error-thrown)
+                   (funcall callback
+                            generated-lst
+                            :model model
+                            :error
+                            (and error-thrown
+                                 `((error-thrown ,error-thrown)
+                                   (data ,data)))))))))
             (request-buf (request-response--buffer request-obj))
             (request-proc (get-buffer-process request-buf))
             (cancel-fn (lambda () (request-abort request-obj))))
