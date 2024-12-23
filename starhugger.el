@@ -1,6 +1,6 @@
 ;;; starhugger.el --- Hugging Face/AI-powered text & code completion client  -*- lexical-binding: t; -*-
 
-;; Version: 0.5.0
+;; Version: 0.5.1-git
 ;; Package-Requires: ((emacs "28.2") (compat "29.1.4.0") (dash "2.18.0") (s "1.13.1") (spinner "1.7.4") (request "0.3.2"))
 ;; Keywords: completion, convenience, languages
 ;; Homepage: https://gitlab.com/daanturo/starhugger.el
@@ -40,7 +40,7 @@
   "Execute the forms in BODY with BUFFER-OR-NAME temporarily current.
 Like `with-current-buffer', but allow scrolling the visible
 window of BUFFER-OR-NAME when at the buffer end, if any."
-  (declare (debug t) (indent 1))
+  (declare (debug t) (indent defun))
   `(-let* ((wd (get-buffer-window ,buffer-or-name t)))
      (cond
       (wd
@@ -124,7 +124,14 @@ See https://huggingface.co/docs/api-inference/quicktour#running-inference-with-a
      (:fill-tokens
       ("<PRE>" "<SUF>" "<MID>")
       :stop-tokens ("<|endoftext|>" "<EOT>")
-      :family code-llama)))
+      :family code-llama))
+    ("\\bQwen[.0-9]*-?Coder\\b" .
+     ;; https://arxiv.org/abs/2409.12186
+     (:fill-tokens
+      ("<|fim_prefix|>" "<|fim_suffix|>" "<|fim_middle|>")
+      :stop-tokens ("<|endoftext|>")
+      :file-separator "<|file_sep|>"
+      :family qwen-coder)))
   "Refer to https://github.com/huggingface/huggingface-vscode/blob/f044ff02f08e49a5da9849f34235fece4a32535b/src/configTemplates.ts#L17.")
 
 (defvar starhugger-model-id)
@@ -1051,9 +1058,7 @@ dependencies. Also remember to reduce
         (progn
           (require 'starhugger-grep-context)
           (cond
-           ((and file-sep
-                 (member
-                  (map-nested-elt preset '(:family)) '(code-gemma starcoder)))
+           ((and file-sep)
             (starhugger-grep-context--file-sep-before-prefix
              callback pre-code suf-code file-sep))
            (:else
