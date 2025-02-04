@@ -1,14 +1,9 @@
 [[https://melpa.org/#/starhugger][file:https://melpa.org/packages/starhugger-badge.svg]] [[https://stable.melpa.org/#/starhugger][file:https://stable.melpa.org/packages/starhugger-badge.svg]]
 
 
-- Hugging Face/AI-powered text & code completion client (unofficial).
-Best supported model(s):
-[[https://huggingface.co/codellama/CodeLlama-13b-hf][CodeLlama]],
-[[https://huggingface.co/bigcode/starcoder2-15b][Starcoder2]]
+- AI-powered text & code completion client.
 
-
-- Also supports using [[https://github.com/ollama/ollama][Ollama]] as a completion backend.
-
+Currently supported backends: [[https://github.com/ollama/ollama][Ollama]], [[https://huggingface.co/docs/api-inference/tasks/text-generation][Hugging Face's Inference API]].
 
 - [[https://github.com/daanturo/starhugger.el/assets/32123754/5ff826ad-5644-4b15-a811-ad8f3fc78979][Demo]]:
 https://github.com/daanturo/starhugger.el/assets/32123754/5ff826ad-5644-4b15-a811-ad8f3fc78979
@@ -19,7 +14,7 @@ https://github.com/daanturo/starhugger.el/assets/32123754/5ff826ad-5644-4b15-a81
 
 * Installation
 
-Starhugger is installable from [[https://melpa.org/#/starhugger][MELPA - Starhugger]], using the command ~package-install~.
+Starhugger is can be installed from [[https://melpa.org/#/starhugger][MELPA - Starhugger]], using the command ~package-install~.
 
 Of if you want to install from source, add one of the following to your configuration:
 
@@ -43,8 +38,6 @@ Or any package manager of your choice.
 
 * Usage
 
-The performance may not be great, but they are asynchronous so Emacs won't be blocked.
-
 ** Primary commands
 
 - Previewing overlay: ~starhugger-trigger-suggestion~ to display the suggestion.
@@ -55,16 +48,14 @@ The performance may not be great, but they are asynchronous so Emacs won't be bl
 
 ~starhugger-dismiss-suggestion~ (bound to =C-g= by default when showing) to cancel.
 
-There is also ~starhugger-auto-mode~ (non-global minor mode) but its usage isn't prioritized for the Hugging Face text inference backend because of the limit rate.
+There is also ~starhugger-auto-mode~ (non-global minor mode), but take note of its usage for the Hugging Face text inference backend because of the limit rate.
 
 
 ** Example configuration
 
 #+begin_src elisp
-(setq starhugger-hugging-face-api-token "hf_ your token here")
-
-;; Optionally use https://huggingface.co/codellama/CodeLlama-13b-hf, best to be set before loading this package
-(setq starhugger-model-id "codellama/CodeLlama-13b-hf")
+;; Optionally use another model, it's best to be set before loading this package, or use Emacs 29+ `setopt'
+(setq starhugger-model-id "codellama")
 
 (global-set-key (kbd "M-\\") #'starhugger-trigger-suggestion)
 
@@ -76,13 +67,17 @@ There is also ~starhugger-auto-mode~ (non-global minor mode) but its usage isn't
   (define-key starhugger-inlining-mode-map (kbd "M-f") (starhugger-inline-menu-item #'starhugger-accept-suggestion-by-word)))
 #+end_src
 
-Use the Ollama local backend:
+Use the Hugging Face backend:
 
 #+begin_src elisp
-(setq starhugger-completion-backend-function #'starhugger-ollama-completion-api)
+(setq starhugger-completion-backend-function #'starhugger-hugging-face-inference-api)
 
-;; use the Customization interface for Emacs version < 29
-(setopt starhugger-model-id "starcoder2")
+(setq starhugger-hugging-face-api-token "hf_ your token here")
+
+(setopt starhugger-model-id "organization/some-model")
+;; Appropriate tokens for the model
+(setq starhugger-fill-tokens '("<PRE>" "<SUF>" "<MID>"))
+(setq starhugger-stop-tokens '("<|endoftext|>" "<EOT>"))
 #+end_src
 
 Additional settings:
@@ -168,6 +163,6 @@ Emacs overlays are used under the hood to display inline suggestion, there are s
 - ½ Support for auto-completing when typing: investigate Emacs's built-in ~completion-at-point-functions~'s asynchronous capabilities, or another framework?
   Current implementation: ~starhugger-auto-mode~ using overlays.
 
-- ½ Find a way to take other files into account [[https://thakkarparth007.github.io/copilot-explorer/posts/copilot-internals.html][Copilot Internals | thakkarparth007.github.io]]: current experimental implementation isn't as sophisticated, just a dumb grep - regex hellish madness on the codebase to find "relevant" symbols (again, relevancy is measure by naive line similarities to the current file name, no semantic analysis or AI involved here); also the syntax to expose inter-file context isn't known yet, I made up using comments.
+- ½ Find a way to take other files into account [[https://thakkarparth007.github.io/copilot-explorer/posts/copilot-internals.html][Copilot Internals | thakkarparth007.github.io]], or a RAG system.
 
 - ✓ Separate frontend (inline suggestion interface) and backend (the text completion provider), and allow multiple backends, not just Hugging Face's inference API.
