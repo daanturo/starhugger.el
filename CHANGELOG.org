@@ -1,3 +1,11 @@
+* Version 0.6.0
+
+- Use Ollama's ~suffix~ parameter (https://gitlab.com/daanturo/starhugger.el/-/merge_requests/3).
+
+- Change default backend to Ollama.
+
+- Change default model to Qwen2.5-coder.
+
 * Version 0.5.0
 
 - Introduce configurable ~starhugger-completion-backend-function~ and Ollama

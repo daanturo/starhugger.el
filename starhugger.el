@@ -155,7 +155,7 @@ See https://huggingface.co/docs/api-inference/quicktour#running-inference-with-a
       (setq starhugger-fill-tokens (map-nested-elt preset '(:fill-tokens)))
       (setq starhugger-stop-tokens (map-nested-elt preset '(:stop-tokens))))))
 
-(defcustom starhugger-model-id "bigcode/starcoder2-15b"
+(defcustom starhugger-model-id "qwen2.5-coder"
   "The language model's ID.
 If you want to use one of the configuration presets, set this
 before loading `starhugger.el' or use `setopt' (or Emacs's
@@ -597,7 +597,7 @@ See https://github.com/ollama/ollama/blob/main/docs/api.md#parameters."
 ;;;;; Completion
 
 (defcustom starhugger-completion-backend-function
-  #'starhugger-hugging-face-inference-api
+  #'starhugger-ollama-completion-api
   "The backend for code suggestion.
 The function accepts those arguments: prompt (string), callback
 function (that accepts these arguments and should be supplied:
