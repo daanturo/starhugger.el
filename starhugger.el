@@ -1,6 +1,6 @@
 ;;; starhugger.el --- Hugging Face/AI-powered text & code completion client  -*- lexical-binding: t; -*-
 
-;; Version: 0.5.1-git
+;; Version: 0.6.0-git
 ;; Package-Requires: ((emacs "28.2") (compat "29.1.4.0") (dash "2.18.0") (s "1.13.1") (spinner "1.7.4") (request "0.3.2"))
 ;; Keywords: completion, convenience, languages
 ;; Homepage: https://gitlab.com/daanturo/starhugger.el
@@ -528,12 +528,13 @@ See https://github.com/ollama/ollama/blob/main/docs/api.md#parameters."
   :group 'starhugger
   :type 'alist)
 
-(cl-defun starhugger-ollama-completion-api (prompt
-                                            callback &rest args &key model force-new max-new-tokens suffix &allow-other-keys)
+(cl-defun starhugger-ollama-completion-api (prompt callback &rest args &key
+                                                   model force-new max-new-tokens
+                                                   prefix suffix &allow-other-keys)
   (-let* ((model (or model starhugger-model-id))
           (sending-data
            (starhugger--json-serialize
-            `((prompt . ,prompt)
+            `((prompt . ,(if suffix prefix prompt))
               (model . ,model)
               ,@(and suffix `((suffix . ,suffix)))
               (options
@@ -1064,7 +1065,10 @@ dependencies. Also remember to reduce
            (:else
             (starhugger-grep-context--prefix-comments
              wrapped-callback pre-code suf-code))))
-      (funcall callback (starhugger--fim-concatenate pre-code suf-code) :suffix suf-code))))
+      (funcall callback
+               (starhugger--fim-concatenate pre-code suf-code)
+               :prefix pre-code
+               :suffix suf-code))))
 
 (defun starhugger--get-from-num-or-list (num-or-list &optional idx)
   (cond
