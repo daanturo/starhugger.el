@@ -528,14 +528,14 @@ See https://github.com/ollama/ollama/blob/main/docs/api.md#parameters."
   :group 'starhugger
   :type 'alist)
 
-
 (cl-defun starhugger-ollama-completion-api (prompt
-                                            callback &rest args &key model force-new max-new-tokens &allow-other-keys)
+                                            callback &rest args &key model force-new max-new-tokens suffix &allow-other-keys)
   (-let* ((model (or model starhugger-model-id))
           (sending-data
            (starhugger--json-serialize
             `((prompt . ,prompt)
               (model . ,model)
+              ,@(and suffix `((suffix . ,suffix)))
               (options
                ,@(and max-new-tokens `((num_predict . ,max-new-tokens)))
                ,@(and force-new
@@ -1064,7 +1064,7 @@ dependencies. Also remember to reduce
            (:else
             (starhugger-grep-context--prefix-comments
              wrapped-callback pre-code suf-code))))
-      (funcall callback (starhugger--fim-concatenate pre-code suf-code)))))
+      (funcall callback (starhugger--fim-concatenate pre-code suf-code) :suffix suf-code))))
 
 (defun starhugger--get-from-num-or-list (num-or-list &optional idx)
   (cond
@@ -1102,13 +1102,14 @@ and a variadic plist."
        (state (starhugger--suggestion-state))
        (prompt-fn (or prompt-fn #'starhugger--async-prompt))
        (prompt-callback
-        (lambda (prompt)
+        (lambda (prompt &rest args)
           (when (< 0 (length prompt))
             (starhugger--ensure-inlininng-mode)
             (letrec
                 ((func
                   (lambda (fetch-time)
-                    (starhugger--query-internal
+                    (apply
+                     #'starhugger--query-internal
                      prompt
                      (lambda (generated-texts &rest returned-args)
                        (when (and (buffer-live-p caller-buf)
@@ -1141,7 +1142,8 @@ and a variadic plist."
                      :force-new (or force-new (< 1 fetch-time))
                      :spin (or starhugger-debug interact)
                      :caller #'starhugger-trigger-suggestion
-                     :backend backend))))
+                     :backend backend
+                     args))))
               (funcall func 1))))))
     (funcall prompt-fn prompt-callback)))
 
