@@ -148,21 +148,23 @@ Emacs overlays are used under the hood to display inline suggestion, there are s
 
 * TODO
 
-- ✓ Support setting parameters at [[https://huggingface.co/docs/api-inference/detailed_parameters#text-generation-task]].
+- [x] Support setting parameters at [[https://huggingface.co/docs/api-inference/detailed_parameters#text-generation-task]].
 
-- ✓ VSCode-like previewing overlays: take after [[https://github.com/zerolfx/copilot.el]].
+- [x] VSCode-like previewing overlays: take after [[https://github.com/zerolfx/copilot.el]].
 
-- ✓ Let ~starhugger-trigger-suggestion~ fetch about 3 suggestions to quickly cycle.
+- [x] Let ~starhugger-trigger-suggestion~ fetch about 3 suggestions to quickly cycle.
 
-- ✓ Fill-in-the-middle support  [[https://github.com/huggingface/huggingface-vscode]]: <fim_prefix>〈code before〉<fim_suffix>〈code after〉<fim_middle>.
+- [x] Fill-in-the-middle support  [[https://github.com/huggingface/huggingface-vscode]]: <fim_prefix>〈code before〉<fim_suffix>〈code after〉<fim_middle>.
 
-- ? More robust and reliable method to show a different suggestion.
+- [ ] More robust and reliable method to show a different suggestion.
 
-- ½ /Batch-previewing multiple suggestions, maybe with syntax highlighting/.
+- [-] /Batch-previewing multiple suggestions, maybe with syntax highlighting/.
 
-- ½ Support for auto-completing when typing: investigate Emacs's built-in ~completion-at-point-functions~'s asynchronous capabilities, or another framework?
+- [-] Support for auto-completing when typing: investigate Emacs's built-in ~completion-at-point-functions~'s asynchronous capabilities, or another framework?
   Current implementation: ~starhugger-auto-mode~ using overlays.
 
-- ½ Find a way to take other files into account [[https://thakkarparth007.github.io/copilot-explorer/posts/copilot-internals.html][Copilot Internals | thakkarparth007.github.io]], or a RAG system.
+- [ ] Find a way to take other files into account [[https://thakkarparth007.github.io/copilot-explorer/posts/copilot-internals.html][Copilot Internals | thakkarparth007.github.io]], or a RAG system.
 
-- ✓ Separate frontend (inline suggestion interface) and backend (the text completion provider), and allow multiple backends, not just Hugging Face's inference API.
+- [x] Separate frontend (inline suggestion interface) and backend (the text completion provider), and allow multiple backends, not just Hugging Face's inference API.
+
+- [ ] With [[https://github.com/milanglacier/minuet-ai.el][prompt engineering]], allow making use of conversational models, not just limited FIM-supported coding ones.
