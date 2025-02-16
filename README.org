@@ -14,7 +14,7 @@ https://github.com/daanturo/starhugger.el/assets/32123754/5ff826ad-5644-4b15-a81
 
 * Installation
 
-Starhugger is can be installed from [[https://melpa.org/#/starhugger][MELPA - Starhugger]], using the command ~package-install~.
+Starhugger can be installed from [[https://melpa.org/#/starhugger][MELPA - Starhugger]], using the command ~package-install~.
 
 Of if you want to install from source, add one of the following to your configuration:
 
