@@ -127,7 +127,7 @@ Additional settings:
 ** Notes
 
 
-When using the Hugging Face text inference backend (the default) remember to set ~starhugger-hugging-face-api-token~ (from [[https://huggingface.co/settings/tokens]]), otherwise you may easily get hit by the limit rate.
+When using the Hugging Face text inference backend, remember to set ~starhugger-hugging-face-api-token~ (from [[https://huggingface.co/settings/tokens]]), otherwise you may easily get hit by the limit rate.
 
 
 *** Known quirks
@@ -167,4 +167,4 @@ Emacs overlays are used under the hood to display inline suggestion, there are s
 
 - [x] Separate frontend (inline suggestion interface) and backend (the text completion provider), and allow multiple backends, not just Hugging Face's inference API.
 
-- [ ] With [[https://github.com/milanglacier/minuet-ai.el][prompt engineering]], allow making use of conversational models, not just limited FIM-supported coding ones.
+- [ ] With [[https://github.com/milanglacier/minuet-ai.el][prompt engineering]], allow making use of conversational models, not just limited to FIM-supported coding ones.
