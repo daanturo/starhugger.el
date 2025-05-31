@@ -97,14 +97,14 @@ There are only so few FIM-trained models, the majority of released LLMs are inst
 
 To use different system and/or user prompts, customize ~starhugger-instruct-make-prompt-messages-function~.
 
-This prompt is not perfect, especially on smaller models who usually fail to follow the instruction to produce /only/ the filling code.  The post-processing steps (~starhugger-post-process-chain~) use some heuristics to extract "just" code from the response.
+This prompt is not perfect, especially on smaller models who usually fail to follow the instruction to produce /only/ the filling code.  The post-processing steps (~starhugger-post-process-chain-default~) use some heuristics to extract "just" code from the response.
 
 Beware that reasoning models produce lots of tokens for thinking and take significantly more inference time, you may want to apply some of those settings, depending on the use case and model:
 
 #+begin_src elisp
 (setq starhugger-openai-compat-chat-completions-parameter-alist '((reasoning_effort . "low")))
 
-(add-to-list 'starhugger-instruct-default-system-prompt-messages "/no_think")
+(add-to-list 'starhugger-instruct-default-system-prompts "/no_think")
 #+end_src
 
 ** Optional settings

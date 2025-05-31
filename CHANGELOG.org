@@ -8,10 +8,10 @@
   - The unusable "grep-context".
   - Commands out the package's scope: ~starhugger-send~, ~starhugger-suggest-git-commit-message~.
   - Option ~starhugger-fill-in-the-middle~, it's now always applied.
+  - Option ~starhugger-trim-spaces-around-prompt~, now always trim prefix's left newlines and suffix's right newlines, but not spaces.
+  - Option ~starhugger-trigger-suggestion-after-accepting~, continuously spitting out code without manual modifying is a bad idea.
     
 - Add *instruction-tuned models* support.
-
-- Change ~starhugger-trigger-suggestion-after-accepting~'s default value to false (nil).
 
 - More conservative defaults for ~starhugger-auto-idle-time~, ~starhugger-numbers-of-suggestions-to-fetch~.
 
